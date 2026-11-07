@@ -5,7 +5,7 @@
   },
   "id": "locquach700.modgd",
   "name": "Mod-GD AutoPilot",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "developer": "locquach700-del",
-  "description": "Geometry Dash UI, native input route recorder and saved-route playback for Windows."
+  "description": "Level scan, experimental cube-only AI pilot, route recording and replay for Geometry Dash Windows."
 }
