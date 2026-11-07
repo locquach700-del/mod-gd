@@ -13,7 +13,7 @@ jobs:
         Expand-Archive ngrok.zip -DestinationPath .\ngrok -Force
     - name: Authenticate Ngrok
       run: |
-        .\ngrok\ngrok.exe authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+        .\ngrok\ngrok.exe config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
     - name: Enable Remote Desktop
       run: |
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
@@ -22,14 +22,14 @@ jobs:
         Set-LocalUser -Name "runneradmin" -Password $SecPassword
     - name: Start RDP Tunnel
       run: |
-        Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389"
+        Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389" -WindowStyle Hidden
         
-        $maxAttempts = 15
+        $maxAttempts = 20
         $attempt = 0
         $success = $false
         
         while ($attempt -lt $maxAttempts -and -not $success) {
-            Start-Sleep -Seconds 2
+            Start-Sleep -Seconds 3
             $attempt++
             try {
                 $ngrokApi = Invoke-RestMethod -Uri http://127.0.0.1:4040/api/tunnels -ErrorAction Stop
