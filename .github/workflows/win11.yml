@@ -8,8 +8,9 @@ jobs:
     steps:
     - name: Download & Setup Ngrok
       run: |
-        Invoke-WebRequest https://bin.equinox.io/c/b3M41H4EP71/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
-        Expand-Archive ngrok.zip
+        $webClient = New-Object System.Net.WebClient
+        $webClient.DownloadFile('https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-amd64.zip', 'ngrok.zip')
+        Expand-Archive ngrok.zip -DestinationPath .\ngrok -Force
     - name: Authenticate Ngrok
       run: |
         .\ngrok\ngrok.exe authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
@@ -17,7 +18,7 @@ jobs:
       run: |
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
         Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString "Password12345!" -AsPlainText -Force)
+        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString "12345" -AsPlainText -Force)
     - name: Start RDP Tunnel
       run: |
         Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389"
@@ -27,6 +28,6 @@ jobs:
         Write-Host "=========================================="
         Write-Host "RDP Address: $rdpAddress"
         Write-Host "Username   : runneradmin"
-        Write-Host "Password   : Loc12345!"
+        Write-Host "Password   : 12345"
         Write-Host "=========================================="
         while ($true) { Start-Sleep -Seconds 3600 }
