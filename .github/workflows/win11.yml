@@ -15,15 +15,13 @@ jobs:
         Set-LocalUser -Name "runneradmin" -Password $SecPassword
         Write-Host "RDP and user configured successfully."
         
-    - name: Start TCP Tunnel via Localhost.run (SSH)
+    - name: Start TCP Tunnel via Pinggy (SSH)
       run: |
-        # Khởi tạo SSH tunnel qua localhost.run để ánh xạ port 3389 ra ngoài internet công khai
-        Write-Host "Starting SSH tunnel to forward RDP port..."
+        Write-Host "Starting SSH tunnel via Pinggy..."
         
-        # Chạy ssh background để forward port 3389
-        $sshProcess = Start-Process -FilePath "ssh.exe" -ArgumentList "-R 0:localhost:3389 -o StrictHostKeyChecking=no -o ServerAliveInterval=60 tunnel.localhost.run" -PassThru -RedirectStandardOutput "ssh_out.log" -RedirectStandardError "ssh_err.log"
+        # Sử dụng pinggy.io để tạo TCP tunneling cho cổng 3389
+        $sshProcess = Start-Process -FilePath "ssh.exe" -ArgumentList "-p 443 -R0:localhost:3389 -o StrictHostKeyChecking=no -o ServerAliveInterval=60 tcp@a.pinggy.io" -PassThru -RedirectStandardOutput "ssh_out.log" -RedirectStandardError "ssh_err.log"
         
-        # Đợi một chút để tunnel thiết lập và ghi log
         $maxAttempts = 20
         $attempt = 0
         $tunnelUrl = $null
@@ -32,19 +30,17 @@ jobs:
             Start-Sleep -Seconds 3
             $attempt++
             
-            if (Test-Path "ssh_out.log") {
-                $content = Get-Content "ssh_out.log" -Raw
-                if ($content -match '([a-zA-Z0-9.-]+\.lhr\.life)') {
-                    $tunnelUrl = $Matches[1]
-                    break
-                }
-            }
-            if (Test-Path "ssh_err.log") {
-                $content = Get-Content "ssh_err.log" -Raw
-                if ($content -match '([a-zA-Z0-9.-]+\.lhr\.life)') {
-                    $tunnelUrl = $Matches[1]
-                    break
-                }
+            $logContent = ""
+            if (Test-Path "ssh_out.log") { $logContent += Get-Content "ssh_out.log" -Raw }
+            if (Test-Path "ssh_err.log") { $logContent += Get-Content "ssh_err.log" -Raw }
+            
+            # Quét định dạng TCP URL trả về từ pinggy (ví dụ: tcp://something.pinggy.link:443 hoặc tương tự)
+            if ($logContent -match '([a-zA-Z0-9.-]+\.pinggy\.link:[0-9]+)') {
+                $tunnelUrl = $Matches[1]
+                break
+            } elseif ($logContent -match '(tcp://[^\s]+)') {
+                $tunnelUrl = $Matches[1]
+                break
             }
             Write-Host "Waiting for tunnel endpoint... attempt $attempt of $maxAttempts"
         }
@@ -63,5 +59,4 @@ jobs:
         Write-Host "Password   : P@ssword123!"
         Write-Host "=========================================="
         
-        # Giữ workflow chạy để duy trì phiên RDP
         while ($true) { Start-Sleep -Seconds 3600 }
