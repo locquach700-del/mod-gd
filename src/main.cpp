@@ -1,5 +1,5 @@
 #include <Geode/Geode.hpp>
-#include <Geode/modify/CCBlockLayer.hpp>
+#include <Geode/modify/PauseLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 
 using namespace geode::prelude;
@@ -61,62 +61,56 @@ class $modify(ModGDPlayLayer, PlayLayer) {
 
     void destroyPlayer(PlayerObject* player, GameObject* object) {
         if (shouldIgnoreDeath()) {
-            // Preview/assist mode: ignore collision-based death.
-            // This does not generate jump or steering inputs.
             return;
         }
-
         PlayLayer::destroyPlayer(player, object);
     }
 };
 
-// PauseLayer::init is inline in GD 2.2081, so attach at the non-inline
-// CCBlockLayer::init entry point and filter for actual PauseLayer instances.
-class $modify(ModGDBlockLayer, CCBlockLayer) {
+// PauseLayer::customSetup is the correct extension point for adding pause-menu UI.
+// PauseLayer::init is inline in GD 2.2081 and must not be hooked.
+class $modify(ModGDPauseLayer, PauseLayer) {
     struct Fields {
         CCLayerColor* overlay = nullptr;
         CCLabelBMFont* previewLabel = nullptr;
         CCLabelBMFont* autoLabel = nullptr;
     };
 
-    bool init() {
-        if (!CCBlockLayer::init()) {
-            return false;
-        }
+    void customSetup() {
+        PauseLayer::customSetup();
 
-        if (dynamic_cast<PauseLayer*>(this) == nullptr) {
-            return true;
-        }
-
-        this->setupModGDPanel();
-        return true;
-    }
-
-    void setupModGDPanel() {
         auto winSize = CCDirector::sharedDirector()->getWinSize();
 
-        // Small launcher shown in the pause screen (the user reaches this screen with Esc).
         auto launcherMenu = CCMenu::create();
         launcherMenu->setPosition(CCPointZero);
+        launcherMenu->setID("mod-gd-launcher-menu"_spr);
 
-        auto launcherSprite = ButtonSprite::create(
-            "MGD", 82, true, "bigFont.fnt", "GJ_button_04.png", 30.f, 0.65f
-        );
+        auto icon = CCSprite::create("mod-gd-icon.png"_spr);
+        if (icon) {
+            icon->setScale(0.12f);
+        } else {
+            // Text fallback in case the custom resource is unavailable.
+            icon = ButtonSprite::create(
+                "MGD", 72, true, "bigFont.fnt", "GJ_button_04.png", 30.f, 0.65f
+            );
+        }
+
         auto launcher = CCMenuItemSpriteExtra::create(
-            launcherSprite, this, menu_selector(ModGDBlockLayer::onOpenModMenu)
+            icon, this, menu_selector(ModGDPauseLayer::onOpenModMenu)
         );
-        launcher->setPosition(CCPoint(winSize.width * 0.14f, winSize.height * 0.50f));
+        launcher->setPosition(CCPoint(winSize.width - 52.f, winSize.height - 48.f));
         launcher->setID("mod-gd-launcher"_spr);
         launcherMenu->addChild(launcher);
         this->addChild(launcherMenu, 1000);
 
-        // Full-screen dim layer with a centered control panel.
         auto overlay = CCLayerColor::create(
-            ccc4(0, 0, 0, 185), winSize.width, winSize.height
+            ccc4(0, 0, 0, 190), winSize.width, winSize.height
         );
         if (!overlay) {
+            log::error("[Mod-GD] Could not create settings overlay");
             return;
         }
+
         overlay->setVisible(false);
         overlay->setID("mod-gd-overlay"_spr);
         this->addChild(overlay, 2000);
@@ -155,7 +149,7 @@ class $modify(ModGDBlockLayer, CCBlockLayer) {
         );
         previewText->setScale(0.48f);
         auto previewButton = CCMenuItemSpriteExtra::create(
-            previewText, this, menu_selector(ModGDBlockLayer::onTogglePreview)
+            previewText, this, menu_selector(ModGDPauseLayer::onTogglePreview)
         );
         previewButton->setPosition(CCPoint(panelWidth / 2.f, 166.f));
         menu->addChild(previewButton);
@@ -166,7 +160,7 @@ class $modify(ModGDBlockLayer, CCBlockLayer) {
         );
         autoText->setScale(0.48f);
         auto autoButton = CCMenuItemSpriteExtra::create(
-            autoText, this, menu_selector(ModGDBlockLayer::onToggleAutoAssist)
+            autoText, this, menu_selector(ModGDPauseLayer::onToggleAutoAssist)
         );
         autoButton->setPosition(CCPoint(panelWidth / 2.f, 112.f));
         menu->addChild(autoButton);
@@ -184,10 +178,12 @@ class $modify(ModGDBlockLayer, CCBlockLayer) {
         auto closeText = CCLabelBMFont::create("CLOSE", "bigFont.fnt");
         closeText->setScale(0.50f);
         auto closeButton = CCMenuItemSpriteExtra::create(
-            closeText, this, menu_selector(ModGDBlockLayer::onCloseModMenu)
+            closeText, this, menu_selector(ModGDPauseLayer::onCloseModMenu)
         );
         closeButton->setPosition(CCPoint(panelWidth / 2.f, 30.f));
         menu->addChild(closeButton);
+
+        log::info("[Mod-GD] Pause menu launcher added at top-right");
     }
 
     void onOpenModMenu(CCObject*) {
