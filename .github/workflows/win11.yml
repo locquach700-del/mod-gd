@@ -22,8 +22,8 @@ jobs:
         Set-LocalUser -Name "runneradmin" -Password $SecPassword
     - name: Start RDP Tunnel
       run: |
-        # Start ngrok in background using Job to capture output and keep API responsive
-        Start-Job -ScriptBlock { .\ngrok\ngrok.exe tcp 3389 }
+        # Run ngrok as a standard background process using Start-Process with redirect to catch crashes
+        $process = Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389" -PassThru -RedirectStandardOutput "ngrok_out.log" -RedirectStandardError "ngrok_err.log"
         
         $maxAttempts = 20
         $attempt = 0
@@ -32,6 +32,10 @@ jobs:
         while ($attempt -lt $maxAttempts -and -not $success) {
             Start-Sleep -Seconds 3
             $attempt++
+            if ($process.HasExited) {
+                Write-Host "[-] Ngrok process exited prematurely with code $($process.ExitCode)"
+                break
+            }
             try {
                 $ngrokApi = Invoke-RestMethod -Uri http://127.0.0.1:4040/api/tunnels -ErrorAction Stop
                 if ($ngrokApi.tunnels) {
@@ -43,8 +47,10 @@ jobs:
         }
         
         if (-not $success) {
-            Write-Host "--- NGROK DEBUG LOGS ---"
-            Get-Content "$env:USERPROFILE\.ngrok2\ngrok.log" -ErrorAction SilentlyContinue
+            Write-Host "=== NGROK STDOUT ==="
+            Get-Content "ngrok_out.log" -ErrorAction SilentlyContinue
+            Write-Host "=== NGROK STDERR ==="
+            Get-Content "ngrok_err.log" -ErrorAction SilentlyContinue
             exit 1
         }
         
