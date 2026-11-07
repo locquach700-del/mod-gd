@@ -33,7 +33,7 @@ jobs:
         id: build
         uses: geode-sdk/build-geode-mod@main
         with:
-          sdk: latest
+          sdk: given
           cli: latest
           target: Win64
           build-config: Release
