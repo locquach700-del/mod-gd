@@ -1,51 +1,36 @@
 # Mod-GD AutoPilot
 
-A Windows Geode mod project targeting Geometry Dash **2.2081** and Geode **5.11.2**.
+A Windows Geode mod for Geometry Dash **2.2081** / Geode **5.11.2**.
 
-## Build
+## Build and install
 
-GitHub Actions builds the Windows `.geode` package when files are pushed to `main`, or when **Build Mod-GD** is started manually.
-
-1. Open the repository's **Actions** tab.
-2. Open the **Build Mod-GD** workflow.
-3. Download the `mod-gd-windows` artifact from the latest successful run.
-4. Extract the ZIP and install the `.geode` file using Geode's **Install from file** option.
+1. Open this repository's **Actions** tab.
+2. Open the latest successful **Build Mod-GD** run.
+3. Download the `mod-gd-windows` artifact ZIP.
+4. Extract the ZIP and install the included `.geode` file with Geode's **Install from file** option.
 5. Restart Geometry Dash.
 
-## In-game controls
+## In-game menu
 
-1. Start a level and press **Esc**.
-2. Open **MGD** from the larger launcher on the left side of the pause screen.
-3. **Preview No-Death** suppresses the death transition for a visual preview. It does not disable collision or calculate a route.
-4. **Learn Route** restarts a level in normal mode and records the native press/release inputs. Finish the level normally to save the route for that level.
-5. On a later attempt, **Play Saved Route** restarts from the beginning and replays the saved inputs.
+1. Open a level and press **Esc**.
+2. Press the larger **MGD** button on the left side of the pause menu.
+3. Press **Analyze Level** before using the AI pilot. The scanner counts level objects, hazards, portals, orbs, pads, triggers, slopes, and checks whether the level matches the current pilot's supported rules.
+4. On a supported simple cube-only level, press **AI Auto-Play**. The pause menu is dismissed and the level restarts from the beginning.
+5. **Learn Route** remains a manual recorder: it records your own press/release input while you complete a normal-mode run.
+6. **Play Saved** replays a successfully saved route.
+7. **Save Level** stores Mod-GD's analysis and route data locally. It does not edit or upload the original Geometry Dash level.
+8. **Exit Level** uses the game's normal quit action.
 
-## What the route player does
+## AI status and limitations
 
-- Records Geometry Dash input events with simulation-step positions.
-- Saves a route only after a successful normal-mode clear. Practice runs and preview runs are not stored as clean routes.
-- Replays press/release events through Geometry Dash's own input handler. This lets the game apply the correct behavior for Cube, Ship, Ball, UFO, Wave, Robot, Spider, Swing, orbs, pads, portals and dual-player input.
-- Saves the last Practice Mode death percentage as a marker for the current level.
+This release includes an **experimental cube-only pilot**, not a universal Geometry Dash solver. It scans the loaded level before starting, then uses a simple hazard-distance and jump-timing heuristic. It currently refuses platformer, dual, portal, orb, and pad levels because it does not yet model those mechanics. Some static cube levels may still defeat it; retry attempts vary the jump lead distance, but this is not a full physics-based pathfinder and does not guarantee completion.
 
-## Important limitations
+The current pilot does not yet understand ship thrust, wave steering, UFO hops, ball gravity changes, robot hold height, spider teleport timing, swing momentum, orb timing, dual synchronization, moving hazards, or complex trigger effects. Noclip preview only suppresses death; it does not prove a route is valid.
 
-- This is a **learned-route recorder/player**, not an AI pathfinder. A route must first be completed manually in normal mode.
-- A route playback repeats the recorded input sequence. It does not invent a different path after a failure, understand unseen levels, or guarantee a clear if level physics, version, or relevant gameplay conditions differ.
-- Practice markers record where a death occurred; they do not automatically find or apply a better route.
-- Preview No-Death only skips the death transition. It does not turn off hitboxes or prove that the input route is valid.
-- The mod has been compiled by GitHub Actions, but in-game behavior still needs to be tested on the target Geometry Dash installation.
+The recorder/player is separate from the AI pilot. It records a human-played input route, saves it after a normal-mode clear, and can replay that trace on later attempts. Practice mode stores a last-death percentage marker, not an automatically repaired route.
 
-## Target compatibility
+## Compatibility
 
 - Windows x64
 - Geometry Dash 2.2081
 - Geode 5.11.2
-
-## References
-
-- [Geode documentation](https://docs.geode-sdk.org/)
-- [Geode build action](https://github.com/geode-sdk/build-geode-mod)
-- [Geometry Dash wiki](https://geometrydash.wiki.gg/wiki/Geometry_Dash)
-- [Portals](https://geometrydash.wiki.gg/wiki/Portals)
-- [Transporters (pads and orbs)](https://geometrydash.wiki.gg/wiki/Transporters)
-- [Triggers](https://geometrydash.wiki.gg/wiki/Triggers)
