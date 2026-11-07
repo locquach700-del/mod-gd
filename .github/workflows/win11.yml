@@ -19,7 +19,6 @@ jobs:
       run: |
         Write-Host "Starting TCP tunnel via Serveo..."
         
-        # Xóa file log cũ nếu có
         Remove-Item "ssh_out.log", "ssh_err.log" -ErrorAction SilentlyContinue
         
         $process = Start-Process -FilePath "ssh.exe" -ArgumentList "-R 0:localhost:3389 -o StrictHostKeyChecking=no -o ServerAliveInterval=60 serveo.net" -PassThru -RedirectStandardOutput "ssh_out.log" -RedirectStandardError "ssh_err.log"
@@ -37,10 +36,14 @@ jobs:
                 break
             }
             
-            # Đọc đồng thời cả Standard Output và Standard Error vì Serveo in log ra cả hai luồng
+            # Sử dụng Get-Content với -Raw và -ErrorAction SilentlyContinue để tránh xung đột khóa file
             $logContent = ""
-            if (Test-Path "ssh_out.log") { $logContent += [System.IO.File]::ReadAllText("$PWD\ssh_out.log") }
-            if (Test-Path "ssh_err.log") { $logContent += [System.IO.File]::ReadAllText("$PWD\ssh_err.log") }
+            if (Test-Path "ssh_out.log") {
+                $logContent += Get-Content "ssh_out.log" -Raw -ErrorAction SilentlyContinue
+            }
+            if (Test-Path "ssh_err.log") {
+                $logContent += Get-Content "ssh_err.log" -Raw -ErrorAction SilentlyContinue
+            }
             
             # Quét tìm địa chỉ định dạng serveousercontent.com hoặc serveo.net kèm cổng TCP
             if ($logContent -match '([a-zA-Z0-9.-]+\.(?:serveo\.net|serveousercontent\.com):[0-9]+)') {
