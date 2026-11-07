@@ -23,8 +23,29 @@ jobs:
     - name: Start RDP Tunnel
       run: |
         Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389"
-        Start-Sleep -Seconds 5
-        $ngrokApi = Invoke-RestMethod -Uri http://127.0.0.1:4040/api/tunnels
+        
+        $maxAttempts = 15
+        $attempt = 0
+        $success = $false
+        
+        while ($attempt -lt $maxAttempts -and -not $success) {
+            Start-Sleep -Seconds 2
+            $attempt++
+            try {
+                $ngrokApi = Invoke-RestMethod -Uri http://127.0.0.1:4040/api/tunnels -ErrorAction Stop
+                if ($ngrokApi.tunnels) {
+                    $success = $true
+                }
+            } catch {
+                Write-Host "Waiting for Ngrok API... attempt $attempt of $maxAttempts"
+            }
+        }
+        
+        if (-not $success) {
+            Write-Host "Error: Ngrok API failed to start."
+            exit 1
+        }
+        
         $rdpAddress = $ngrokApi.tunnels[0].public_url -replace 'tcp://', ''
         Write-Host "=========================================="
         Write-Host "RDP Address: $rdpAddress"
