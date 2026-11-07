@@ -23,12 +23,12 @@ jobs:
         
         $process = Start-Process -FilePath "ssh.exe" -ArgumentList "-R 0:localhost:3389 -o StrictHostKeyChecking=no -o ServerAliveInterval=60 serveo.net" -PassThru -RedirectStandardOutput "ssh_out.log" -RedirectStandardError "ssh_err.log"
         
-        $maxAttempts = 25
+        $maxAttempts = 20
         $attempt = 0
         $tunnelUrl = $null
         
         while ($attempt -lt $maxAttempts -and -not $tunnelUrl) {
-            Start-Sleep -Seconds 2
+            Start-Sleep -Seconds 1
             $attempt++
             
             if ($process.HasExited) {
@@ -36,21 +36,15 @@ jobs:
                 break
             }
             
-            # Sử dụng Get-Content với -Raw và -ErrorAction SilentlyContinue để tránh xung đột khóa file
             $logContent = ""
-            if (Test-Path "ssh_out.log") {
-                $logContent += Get-Content "ssh_out.log" -Raw -ErrorAction SilentlyContinue
-            }
-            if (Test-Path "ssh_err.log") {
-                $logContent += Get-Content "ssh_err.log" -Raw -ErrorAction SilentlyContinue
-            }
+            if (Test-Path "ssh_out.log") { $logContent += Get-Content "ssh_out.log" -Raw -ErrorAction SilentlyContinue }
+            if (Test-Path "ssh_err.log") { $logContent += Get-Content "ssh_err.log" -Raw -ErrorAction SilentlyContinue }
             
-            # Quét tìm địa chỉ định dạng serveousercontent.com hoặc serveo.net kèm cổng TCP
             if ($logContent -match '([a-zA-Z0-9.-]+\.(?:serveo\.net|serveousercontent\.com):[0-9]+)') {
                 $tunnelUrl = $Matches[1]
                 break
             }
-            Write-Host "Waiting for Serveo tunnel endpoint... attempt $attempt of $maxAttempts"
+            Write-Host "Waiting for Serveo endpoint... attempt $attempt of $maxAttempts"
         }
         
         if (-not $tunnelUrl) {
