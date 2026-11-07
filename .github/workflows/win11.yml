@@ -23,12 +23,13 @@ jobs:
         
         $process = Start-Process -FilePath "ssh.exe" -ArgumentList "-R 0:localhost:3389 -o StrictHostKeyChecking=no -o ServerAliveInterval=60 serveo.net" -PassThru -RedirectStandardOutput "ssh_out.log" -RedirectStandardError "ssh_err.log"
         
-        $maxAttempts = 20
+        # Tăng số lần thử lên 40 lần (mỗi lần 1.5 giây) để đủ thời gian cho SSH thiết lập kết nối
+        $maxAttempts = 40
         $attempt = 0
         $tunnelUrl = $null
         
         while ($attempt -lt $maxAttempts -and -not $tunnelUrl) {
-            Start-Sleep -Seconds 1
+            Start-Sleep -Seconds 1.5
             $attempt++
             
             if ($process.HasExited) {
