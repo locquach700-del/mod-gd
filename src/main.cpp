@@ -1076,23 +1076,21 @@ class $modify(ModGDPauseLayer, PauseLayer) {
             return;
         }
 
-        bool savedRoute = saveCurrentRoute(layer);
+        // Save the opened level to Geometry Dash's own Saved Levels list.
+        GameLevelManager::sharedState()->saveLevel(layer->m_level);
+
+        const bool savedRoute = saveCurrentRoute(layer);
         const auto key = analysisKey(layer->m_level);
         if (!key.empty() && g_aiAnalysisReady &&
             g_aiAnalysisKey == key && !g_aiAnalysisSummary.empty()) {
             Mod::get()->setSavedValue<std::string>(key, g_aiAnalysisSummary);
         }
 
-        if (savedRoute || g_aiAnalysisReady) {
-            showNotice(
-                "Mod-GD saved this level's analysis and any recorded route locally. "
-                "This does not edit or upload the original Geometry Dash level."
-            );
-        } else {
-            showNotice(
-                "Nothing to save yet. Analyze the level or record a route first."
-            );
-        }
+        showNotice(
+            savedRoute || g_aiAnalysisReady
+                ? "Level added to Geometry Dash Saved Levels. Mod-GD also saved available analysis and route data."
+                : "Level added to Geometry Dash Saved Levels."
+        );
 
         this->refreshLabels();
     }
