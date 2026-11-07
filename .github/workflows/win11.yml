@@ -6,15 +6,16 @@ jobs:
   build:
     runs-on: windows-2022
     steps:
-    - name: Download & Setup Ngrok v3
+    - name: Install Ngrok via Winget
       run: |
         $ErrorActionPreference = 'Stop'
-        Write-Host "Downloading Ngrok v3..."
-        Invoke-WebRequest -Uri "https://bin.equinox.io/c/b6rfaHqngDq/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
-        Expand-Archive ngrok.zip -DestinationPath .\ngrok -Force
+        Write-Host "Installing Ngrok..."
+        winget install --id Ngrok.Ngrok -e --accept-source-agreements --accept-package-agreements
+        # Refresh environment variables so ngrok command is immediately available in path
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
     - name: Authenticate Ngrok
       run: |
-        .\ngrok\ngrok.exe config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+        ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
     - name: Enable Remote Desktop
       run: |
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
@@ -23,7 +24,7 @@ jobs:
         Set-LocalUser -Name "runneradmin" -Password $SecPassword
     - name: Start RDP Tunnel
       run: |
-        $process = Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389" -PassThru -RedirectStandardOutput "ngrok_out.log" -RedirectStandardError "ngrok_err.log"
+        $process = Start-Process -FilePath "ngrok.exe" -ArgumentList "tcp 3389" -PassThru -RedirectStandardOutput "ngrok_out.log" -RedirectStandardError "ngrok_err.log"
         
         $maxAttempts = 20
         $attempt = 0
@@ -57,7 +58,7 @@ jobs:
         $rdpAddress = $ngrokApi.tunnels[0].public_url -replace 'tcp://', ''
         Write-Host "=========================================="
         Write-Host "RDP Address: $rdpAddress"
-        Write-Host "Username   : admin"
-        Write-Host "Password   : loc123!"
+        Write-Host "Username   : runneradmin"
+        Write-Host "Password   : P@ssword123!"
         Write-Host "=========================================="
         while ($true) { Start-Sleep -Seconds 3600 }
