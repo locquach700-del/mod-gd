@@ -27,10 +27,9 @@ jobs:
       run: |
         Write-Host "Starting Cloudflare TCP quick tunnel for RDP port 3389..."
         
-        # Chạy cloudflared dưới dạng background process và ghi log để lấy URL
         $process = Start-Process -FilePath ".\cloudflared.exe" -ArgumentList "tunnel --url rdp://localhost:3389" -PassThru -RedirectStandardOutput "cf_out.log" -RedirectStandardError "cf_err.log"
         
-        $maxAttempts = 20
+        $maxAttempts = 25
         $attempt = 0
         $tunnelUrl = $null
         
@@ -47,8 +46,8 @@ jobs:
             if (Test-Path "cf_out.log") { $logContent += Get-Content "cf_out.log" -Raw }
             if (Test-Path "cf_err.log") { $logContent += Get-Content "cf_err.log" -Raw }
             
-            # Quét định dạng URL trycloudflare trả về (ví dụ: tcp://xxxx.trycloudflare.com:port hoặc tương tự)
-            if ($logContent -match '(tcp://[^\s]+)') {
+            # Quét đúng định dạng URL trycloudflare.com do cloudflared trả về trong log
+            if ($logContent -match '(https://[a-zA-Z0-9-]+\.trycloudflare\.com)') {
                 $tunnelUrl = $Matches[1]
                 break
             }
