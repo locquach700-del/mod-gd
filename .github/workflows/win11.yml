@@ -38,8 +38,8 @@ jobs:
             if (Test-Path "ssh_out.log") { $logContent += Get-Content "ssh_out.log" -Raw }
             if (Test-Path "ssh_err.log") { $logContent += Get-Content "ssh_err.log" -Raw }
             
-            # Quét chính xác định dạng TCP forwarding của serveo (ví dụ: hostname.serveo.net:12345)
-            if ($logContent -match '([a-zA-Z0-9.-]+\.serveo\.net:[0-9]+)') {
+            # Cập nhật regex để khớp với serveousercontent.com hoặc serveo.net kèm cổng
+            if ($logContent -match '([a-zA-Z0-9.-]+\.(?:serveo\.net|serveousercontent\.com):[0-9]+)') {
                 $tunnelUrl = $Matches[1]
                 break
             }
