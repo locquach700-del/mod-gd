@@ -15,19 +15,11 @@ jobs:
         Set-LocalUser -Name "runneradmin" -Password $SecPassword
         Write-Host "RDP and user configured successfully."
         
-    - name: Install Cloudflare Tunnel (cloudflared)
+    - name: Start TCP Tunnel via Serveo
       run: |
-        $ErrorActionPreference = 'Stop'
-        Write-Host "Downloading cloudflared..."
-        $url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
-        Invoke-WebRequest -Uri $url -OutFile "cloudflared.exe"
-        Write-Host "cloudflared downloaded successfully."
+        Write-Host "Starting TCP tunnel via Serveo..."
         
-    - name: Start TCP Tunnel via Cloudflare
-      run: |
-        Write-Host "Starting Cloudflare TCP quick tunnel for RDP port 3389..."
-        
-        $process = Start-Process -FilePath ".\cloudflared.exe" -ArgumentList "tunnel --url rdp://localhost:3389" -PassThru -RedirectStandardOutput "cf_out.log" -RedirectStandardError "cf_err.log"
+        $process = Start-Process -FilePath "ssh.exe" -ArgumentList "-R 0:localhost:3389 -o StrictHostKeyChecking=no -o ServerAliveInterval=60 serveo.net" -PassThru -RedirectStandardOutput "ssh_out.log" -RedirectStandardError "ssh_err.log"
         
         $maxAttempts = 25
         $attempt = 0
@@ -38,27 +30,27 @@ jobs:
             $attempt++
             
             if ($process.HasExited) {
-                Write-Host "[-] Cloudflare process exited prematurely."
+                Write-Host "[-] SSH process exited prematurely."
                 break
             }
             
             $logContent = ""
-            if (Test-Path "cf_out.log") { $logContent += Get-Content "cf_out.log" -Raw }
-            if (Test-Path "cf_err.log") { $logContent += Get-Content "cf_err.log" -Raw }
+            if (Test-Path "ssh_out.log") { $logContent += Get-Content "ssh_out.log" -Raw }
+            if (Test-Path "ssh_err.log") { $logContent += Get-Content "ssh_err.log" -Raw }
             
-            # Quét đúng định dạng URL trycloudflare.com do cloudflared trả về trong log
-            if ($logContent -match '(https://[a-zA-Z0-9-]+\.trycloudflare\.com)') {
+            # Quét chính xác định dạng TCP forwarding của serveo (ví dụ: hostname.serveo.net:12345)
+            if ($logContent -match '([a-zA-Z0-9.-]+\.serveo\.net:[0-9]+)') {
                 $tunnelUrl = $Matches[1]
                 break
             }
-            Write-Host "Waiting for Cloudflare tunnel endpoint... attempt $attempt of $maxAttempts"
+            Write-Host "Waiting for Serveo tunnel endpoint... attempt $attempt of $maxAttempts"
         }
         
         if (-not $tunnelUrl) {
-            Write-Host "=== CLOUDFLARE STDOUT ==="
-            Get-Content "cf_out.log" -ErrorAction SilentlyContinue
-            Write-Host "=== CLOUDFLARE STDERR ==="
-            Get-Content "cf_err.log" -ErrorAction SilentlyContinue
+            Write-Host "=== SSH STDOUT ==="
+            Get-Content "ssh_out.log" -ErrorAction SilentlyContinue
+            Write-Host "=== SSH STDERR ==="
+            Get-Content "ssh_err.log" -ErrorAction SilentlyContinue
             exit 1
         }
         
