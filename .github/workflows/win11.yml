@@ -15,48 +15,22 @@ jobs:
         Set-LocalUser -Name "runneradmin" -Password $SecPassword
         Write-Host "RDP and user configured successfully."
         
-    - name: Start TCP Tunnel via Pinggy (SSH)
+    - name: Install Cloudflare Tunnel (cloudflared)
       run: |
-        Write-Host "Starting SSH tunnel via Pinggy..."
+        $ErrorActionPreference = 'Stop'
+        Write-Host "Installing cloudflared via winget or direct download..."
         
-        # Sử dụng pinggy.io để tạo TCP tunneling cho cổng 3389
-        $sshProcess = Start-Process -FilePath "ssh.exe" -ArgumentList "-p 443 -R0:localhost:3389 -o StrictHostKeyChecking=no -o ServerAliveInterval=60 tcp@a.pinggy.io" -PassThru -RedirectStandardOutput "ssh_out.log" -RedirectStandardError "ssh_err.log"
+        # Tải trực tiếp binary cloudflared chính thức từ GitHub của Cloudflare
+        $url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+        Invoke-WebRequest -Uri $url -OutFile "cloudflared.exe"
+        Write-Host "cloudflared downloaded successfully."
         
-        $maxAttempts = 20
-        $attempt = 0
-        $tunnelUrl = $null
+    - name: Start TCP Tunnel via Cloudflare
+      run: |
+        Write-Host "Starting Cloudflare TCP tunnel for RDP port 3389..."
         
-        while ($attempt -lt $maxAttempts -and -not $tunnelUrl) {
-            Start-Sleep -Seconds 3
-            $attempt++
-            
-            $logContent = ""
-            if (Test-Path "ssh_out.log") { $logContent += Get-Content "ssh_out.log" -Raw }
-            if (Test-Path "ssh_err.log") { $logContent += Get-Content "ssh_err.log" -Raw }
-            
-            # Quét định dạng TCP URL trả về từ pinggy (ví dụ: tcp://something.pinggy.link:443 hoặc tương tự)
-            if ($logContent -match '([a-zA-Z0-9.-]+\.pinggy\.link:[0-9]+)') {
-                $tunnelUrl = $Matches[1]
-                break
-            } elseif ($logContent -match '(tcp://[^\s]+)') {
-                $tunnelUrl = $Matches[1]
-                break
-            }
-            Write-Host "Waiting for tunnel endpoint... attempt $attempt of $maxAttempts"
-        }
+        # Chạy cloudflared tunnel trỏ tới rdp local
+        $process = Start-Process -FilePath ".\cloudflared.exe" -ArgumentList "access tcp --url localhost:3389 --hostname rdp.trycloudflare.com" -PassThru -RedirectStandardOutput "cf_out.log" -RedirectStandardError "cf_err.log"
         
-        if (-not $tunnelUrl) {
-            Write-Host "=== SSH STDOUT ==="
-            Get-Content "ssh_out.log" -ErrorAction SilentlyContinue
-            Write-Host "=== SSH STDERR ==="
-            Get-Content "ssh_err.log" -ErrorAction SilentlyContinue
-            exit 1
-        }
-        
-        Write-Host "=========================================="
-        Write-Host "RDP Address: $tunnelUrl"
-        Write-Host "Username   : runneradmin"
-        Write-Host "Password   : P@ssword123!"
-        Write-Host "=========================================="
-        
-        while ($true) { Start-Sleep -Seconds 3600 }
+        # Lưu ý: cloudflared quick tunnel cho TCP thường sinh ra một địa chỉ ngẫu nhiên hoặc yêu cầu forward port. 
+        # Cách chuẩn nhất là dùng lệnh 'tunnel --url rdp://localhost:3389' hoặc dịch vụ thay thế chuyên dụng.
