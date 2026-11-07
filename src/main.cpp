@@ -1,5 +1,5 @@
 #include <Geode/Geode.hpp>
-#include <Geode/modify/PauseLayer.hpp>
+#include <Geode/modify/CCBlockLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 
 using namespace geode::prelude;
@@ -70,18 +70,29 @@ class $modify(ModGDPlayLayer, PlayLayer) {
     }
 };
 
-class $modify(ModGDPauseLayer, PauseLayer) {
+// PauseLayer::init is inline in GD 2.2081, so attach at the non-inline
+// CCBlockLayer::init entry point and filter for actual PauseLayer instances.
+class $modify(ModGDBlockLayer, CCBlockLayer) {
     struct Fields {
         CCLayerColor* overlay = nullptr;
         CCLabelBMFont* previewLabel = nullptr;
         CCLabelBMFont* autoLabel = nullptr;
     };
 
-    bool init(bool isPaused) {
-        if (!PauseLayer::init(isPaused)) {
+    bool init() {
+        if (!CCBlockLayer::init()) {
             return false;
         }
 
+        if (dynamic_cast<PauseLayer*>(this) == nullptr) {
+            return true;
+        }
+
+        this->setupModGDPanel();
+        return true;
+    }
+
+    void setupModGDPanel() {
         auto winSize = CCDirector::sharedDirector()->getWinSize();
 
         // Small launcher shown in the pause screen (the user reaches this screen with Esc).
@@ -92,7 +103,7 @@ class $modify(ModGDPauseLayer, PauseLayer) {
             "MGD", 82, true, "bigFont.fnt", "GJ_button_04.png", 30.f, 0.65f
         );
         auto launcher = CCMenuItemSpriteExtra::create(
-            launcherSprite, this, menu_selector(ModGDPauseLayer::onOpenModMenu)
+            launcherSprite, this, menu_selector(ModGDBlockLayer::onOpenModMenu)
         );
         launcher->setPosition(CCPoint(winSize.width * 0.14f, winSize.height * 0.50f));
         launcher->setID("mod-gd-launcher"_spr);
@@ -104,7 +115,7 @@ class $modify(ModGDPauseLayer, PauseLayer) {
             ccc4(0, 0, 0, 185), winSize.width, winSize.height
         );
         if (!overlay) {
-            return true;
+            return;
         }
         overlay->setVisible(false);
         overlay->setID("mod-gd-overlay"_spr);
@@ -144,7 +155,7 @@ class $modify(ModGDPauseLayer, PauseLayer) {
         );
         previewText->setScale(0.48f);
         auto previewButton = CCMenuItemSpriteExtra::create(
-            previewText, this, menu_selector(ModGDPauseLayer::onTogglePreview)
+            previewText, this, menu_selector(ModGDBlockLayer::onTogglePreview)
         );
         previewButton->setPosition(CCPoint(panelWidth / 2.f, 166.f));
         menu->addChild(previewButton);
@@ -155,14 +166,14 @@ class $modify(ModGDPauseLayer, PauseLayer) {
         );
         autoText->setScale(0.48f);
         auto autoButton = CCMenuItemSpriteExtra::create(
-            autoText, this, menu_selector(ModGDPauseLayer::onToggleAutoAssist)
+            autoText, this, menu_selector(ModGDBlockLayer::onToggleAutoAssist)
         );
         autoButton->setPosition(CCPoint(panelWidth / 2.f, 112.f));
         menu->addChild(autoButton);
         m_fields->autoLabel = autoText;
 
         auto note = CCLabelBMFont::create(
-            "Assist currently prevents deaths; it does not tap or steer yet.",
+            "Assist blocks deaths; it does not tap or steer yet.",
             "bigFont.fnt"
         );
         note->setScale(0.30f);
@@ -173,12 +184,10 @@ class $modify(ModGDPauseLayer, PauseLayer) {
         auto closeText = CCLabelBMFont::create("CLOSE", "bigFont.fnt");
         closeText->setScale(0.50f);
         auto closeButton = CCMenuItemSpriteExtra::create(
-            closeText, this, menu_selector(ModGDPauseLayer::onCloseModMenu)
+            closeText, this, menu_selector(ModGDBlockLayer::onCloseModMenu)
         );
         closeButton->setPosition(CCPoint(panelWidth / 2.f, 30.f));
         menu->addChild(closeButton);
-
-        return true;
     }
 
     void onOpenModMenu(CCObject*) {
