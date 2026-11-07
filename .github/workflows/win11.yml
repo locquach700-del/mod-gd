@@ -6,13 +6,29 @@ jobs:
   build:
     runs-on: windows-2022
     steps:
-    - name: Download & Setup Ngrok Direct
+    - name: Download & Setup Ngrok from GitHub Release
       run: |
         $ErrorActionPreference = 'Stop'
-        Write-Host "Downloading Ngrok from official GitHub release..."
-        $url = "https://bin.equinox.io/c/bnyj1vqlaSp/ngrok-v3-stable-windows-amd64.zip"
-        Invoke-WebRequest -Uri $url -OutFile "ngrok.zip"
+        Write-Host "Downloading Ngrok v3 from GitHub Releases..."
+        $url = "https://bin.equinox.io/a/4VmDzA7iaHb/ngrok-stable-windows-amd64.zip"
+        # Sử dụng bản release trực tiếp từ GitHub release asset
+        $githubUrl = "https://github.com/ngrok/ngrok/releases/download/v3.18.0/ngrok-v3.18.0-windows-amd64.zip"
+        
+        try {
+            Invoke-WebRequest -Uri $githubUrl -OutFile "ngrok.zip"
+        } catch {
+            Write-Host "Fallback to alternative official CDN..."
+            Invoke-WebRequest -Uri "https://bin.equinox.io/c/b3M41H4EP71/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
+        }
+        
         Expand-Archive ngrok.zip -DestinationPath .\ngrok -Force
+        # Handle case where exe might be directly in archive or nested
+        if (!(Test-Path ".\ngrok\ngrok.exe")) {
+            $extracted = Get-ChildItem -Path . -Filter "ngrok.exe" -Recurse
+            if ($extracted) {
+                Move-Item $extracted[0].FullName ".\ngrok\ngrok.exe" -Force
+            }
+        }
     - name: Authenticate Ngrok
       run: |
         .\ngrok\ngrok.exe config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
