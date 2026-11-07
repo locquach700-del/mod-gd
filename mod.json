@@ -1,0 +1,11 @@
+{
+  "geode": "5.11.2",
+  "gd": {
+    "win": "2.2081"
+  },
+  "id": "locquach700.modgd",
+  "name": "Mod-GD AutoPilot",
+  "version": "0.1.0",
+  "developer": "locquach700-del",
+  "description": "Geometry Dash preview and no-death automation experiments for Windows."
+}
