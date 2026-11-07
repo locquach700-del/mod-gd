@@ -322,19 +322,45 @@ class $modify(ModGDPlayLayer, PlayLayer) {
         }
 
         if (g_routeMode == RouteMode::Playing) {
-            if (g_replayFailed) {
-                ++g_replayRetries;
-                if (g_replayRetries >= 3) {
-                    g_routeMode = RouteMode::Idle;
-                    g_replayFailed = false;
-                    g_playIndex = 0;
-                    return;
-                }
-            }
-
+            // Every restart begins the saved route from its first input event.
+            // Retry counting is handled in showRetryLayer(), not here.
             g_replayFailed = false;
             g_playIndex = 0;
             g_lastFrame = 0;
+        }
+    }
+
+    void showRetryLayer() {
+        if (g_routeMode == RouteMode::Playing && g_replayFailed) {
+            if (g_replayRetries < 3) {
+                ++g_replayRetries;
+                g_replayFailed = false;
+
+                // Hide the vanilla retry screen and automatically restart the
+                // same saved input route. This is a bounded retry, not a new
+                // path search; after three failed replays, show the normal UI.
+                this->runAction(CCSequence::create(
+                    CCDelayTime::create(0.35f),
+                    CCCallFunc::create(
+                        this,
+                        callfunc_selector(ModGDPlayLayer::restartSavedRouteNow)
+                    ),
+                    nullptr
+                ));
+                return;
+            }
+
+            g_routeMode = RouteMode::Idle;
+            g_replayFailed = false;
+            g_playIndex = 0;
+        }
+
+        PlayLayer::showRetryLayer();
+    }
+
+    void restartSavedRouteNow() {
+        if (g_routeMode == RouteMode::Playing && !m_hasCompletedLevel) {
+            this->resumeAndRestart(true);
         }
     }
 
