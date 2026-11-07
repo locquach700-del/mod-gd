@@ -9,29 +9,39 @@ jobs:
     - name: Download & Setup Ngrok via Official API
       run: |
         $ErrorActionPreference = 'Stop'
-        Write-Host "Fetching latest Ngrok v3 download link from official API..."
-        
-        # Gọi API chính thức của ngrok để lấy đường dẫn tải trực tiếp mới nhất
-        $response = Invoke-RestMethod -Uri "https://bin.equinox.io/os/windows/x86_64/ngrok.zip" -Method Head -MaximumRedirection 0 -ErrorAction SilentlyContinue
-        # Hoặc tải trực tiếp thông qua gói dự phòng ổn định qua PowerShell Net.WebClient với User-Agent chuẩn
+        Write-Host "Fetching and downloading Ngrok v3 binary..."
         
         $wc = New-Object System.Net.WebClient
         $wc.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
         
-        # Link tải trực tiếp file zip chính thức từ mirror ổn định của ngrok
-        $downloadUrl = "https://bin.equinox.io/c/b3M41H4EP71/ngrok-v3-stable-windows-amd64.zip"
+        # Tải trực tiếp từ mirror lưu trữ file zip chuẩn ngrok v3 ổn định
+        $downloadUrls = @(
+            "https://bin.equinox.io/c/b3M41H4EP71/ngrok-v3-stable-windows-amd64.zip",
+            "https://raw.githubusercontent.com/georgykurushin/ngrok/master/ngrok-stable-windows-amd64.zip",
+            "https://github.com/dotronglong/ngrok/raw/master/ngrok-stable-windows-amd64.zip"
+        )
         
-        Write-Host "Downloading Ngrok archive..."
-        # Tải qua PowerShell trực tiếp kiểm tra kích thước file
-        $wc.DownloadFile("https://dl.equinox.io/ngrok/ngrok/stable/windows/amd64/ngrok.zip", "ngrok.zip")
+        $downloaded = $false
+        foreach ($url in $downloadUrls) {
+            try {
+                Write-Host "Trying to download from: $url"
+                $wc.DownloadFile($url, "ngrok.zip")
+                $fileSize = (Get-Item "ngrok.zip").Length
+                if ($fileSize -gt 10000) {
+                    $downloaded = $true
+                    Write-Host "Download successful! File size: $fileSize bytes"
+                    break
+                } else {
+                    Write-Host "File too small, likely an error page. Trying next..."
+                }
+            } catch {
+                Write-Host "Failed with error: $_.Exception.Message"
+            }
+        }
         
-        # Kiểm tra nếu file tải về quá nhỏ (tức là file lỗi/HTML), dùng link dự phòng qua GitHub raw
-        $fileSize = (Get-Item "ngrok.zip").Length
-        if ($fileSize -lt 10000) {
-            Write-Host "Primary mirror failed, downloading via trusted backup release..."
-            Remove-Item "ngrok.zip" -Force
-            # Tải bản ngrok trực tiếp từ file zip lưu trữ dự phòng đáng tin cậy
-            $wc.DownloadFile("https://github.com/georgykurushin/ngrok/raw/master/ngrok-stable-windows-amd64.zip", "ngrok.zip")
+        if (-not $downloaded) {
+            Write-Host "All mirrors failed. Exiting."
+            exit 1
         }
         
         Expand-Archive -Path "ngrok.zip" -DestinationPath ".\ngrok" -Force
@@ -42,7 +52,7 @@ jobs:
                 Move-Item $extracted[0].FullName ".\ngrok\ngrok.exe" -Force
             }
         }
-        Write-Host "Ngrok successfully set up!"
+        Write-Host "Ngrok successfully extracted!"
     - name: Authenticate Ngrok
       run: |
         .\ngrok\ngrok.exe config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
