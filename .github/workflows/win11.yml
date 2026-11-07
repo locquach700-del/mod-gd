@@ -8,8 +8,9 @@ jobs:
     steps:
     - name: Download & Setup Ngrok v3
       run: |
-        $webClient = New-Object System.Net.WebClient
-        $webClient.DownloadFile('https://bin.equinox.io/c/b3M41H4EP71/ngrok-v3-stable-windows-amd64.zip', 'ngrok.zip')
+        $ErrorActionPreference = 'Stop'
+        Write-Host "Downloading Ngrok v3..."
+        Invoke-WebRequest -Uri "https://bin.equinox.io/c/b6rfaHqngDq/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
         Expand-Archive ngrok.zip -DestinationPath .\ngrok -Force
     - name: Authenticate Ngrok
       run: |
