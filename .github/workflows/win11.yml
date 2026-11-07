@@ -6,69 +6,62 @@ jobs:
   build:
     runs-on: windows-2022
     steps:
-    - name: Install Ngrok via Chocolatey
+    - name: Enable Remote Desktop & Configure User
       run: |
         $ErrorActionPreference = 'Stop'
-        Write-Host "Installing Ngrok via Chocolatey..."
-        choco install ngrok -y
-        
-        # Làm mới biến môi trường để lệnh ngrok có hiệu lực toàn cục ngay lập tức
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-        
-        # Kiểm tra xem ngrok đã khả dụng chưa
-        if (!(Get-Command ngrok -ErrorAction SilentlyContinue)) {
-            throw "Ngrok installation failed or command not found in PATH."
-        }
-        Write-Host "Ngrok installed successfully!"
-        
-    - name: Authenticate Ngrok
-      run: |
-        ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
-        
-    - name: Enable Remote Desktop
-      run: |
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
         Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
         $SecPassword = ConvertTo-SecureString "P@ssword123!" -AsPlainText -Force
         Set-LocalUser -Name "runneradmin" -Password $SecPassword
+        Write-Host "RDP and user configured successfully."
         
-    - name: Start RDP Tunnel
+    - name: Start TCP Tunnel via Localhost.run (SSH)
       run: |
-        $process = Start-Process -FilePath "ngrok.exe" -ArgumentList "tcp 3389" -PassThru -RedirectStandardOutput "ngrok_out.log" -RedirectStandardError "ngrok_err.log"
+        # Khởi tạo SSH tunnel qua localhost.run để ánh xạ port 3389 ra ngoài internet công khai
+        Write-Host "Starting SSH tunnel to forward RDP port..."
         
+        # Chạy ssh background để forward port 3389
+        $sshProcess = Start-Process -FilePath "ssh.exe" -ArgumentList "-R 0:localhost:3389 -o StrictHostKeyChecking=no -o ServerAliveInterval=60 tunnel.localhost.run" -PassThru -RedirectStandardOutput "ssh_out.log" -RedirectStandardError "ssh_err.log"
+        
+        # Đợi một chút để tunnel thiết lập và ghi log
         $maxAttempts = 20
         $attempt = 0
-        $success = $false
+        $tunnelUrl = $null
         
-        while ($attempt -lt $maxAttempts -and -not $success) {
+        while ($attempt -lt $maxAttempts -and -not $tunnelUrl) {
             Start-Sleep -Seconds 3
             $attempt++
-            if ($process.HasExited) {
-                Write-Host "[-] Ngrok process exited prematurely with code $($process.ExitCode)"
-                break
-            }
-            try {
-                $ngrokApi = Invoke-RestMethod -Uri http://127.0.0.1:4040/api/tunnels -ErrorAction Stop
-                if ($ngrokApi.tunnels) {
-                    $success = $true
+            
+            if (Test-Path "ssh_out.log") {
+                $content = Get-Content "ssh_out.log" -Raw
+                if ($content -match '([a-zA-Z0-9.-]+\.lhr\.life)') {
+                    $tunnelUrl = $Matches[1]
+                    break
                 }
-            } catch {
-                Write-Host "Waiting for Ngrok API... attempt $attempt of $maxAttempts"
             }
+            if (Test-Path "ssh_err.log") {
+                $content = Get-Content "ssh_err.log" -Raw
+                if ($content -match '([a-zA-Z0-9.-]+\.lhr\.life)') {
+                    $tunnelUrl = $Matches[1]
+                    break
+                }
+            }
+            Write-Host "Waiting for tunnel endpoint... attempt $attempt of $maxAttempts"
         }
         
-        if (-not $success) {
-            Write-Host "=== NGROK STDOUT ==="
-            Get-Content "ngrok_out.log" -ErrorAction SilentlyContinue
-            Write-Host "=== NGROK STDERR ==="
-            Get-Content "ngrok_err.log" -ErrorAction SilentlyContinue
+        if (-not $tunnelUrl) {
+            Write-Host "=== SSH STDOUT ==="
+            Get-Content "ssh_out.log" -ErrorAction SilentlyContinue
+            Write-Host "=== SSH STDERR ==="
+            Get-Content "ssh_err.log" -ErrorAction SilentlyContinue
             exit 1
         }
         
-        $rdpAddress = $ngrokApi.tunnels[0].public_url -replace 'tcp://', ''
         Write-Host "=========================================="
-        Write-Host "RDP Address: $rdpAddress"
+        Write-Host "RDP Address: $tunnelUrl"
         Write-Host "Username   : runneradmin"
         Write-Host "Password   : P@ssword123!"
         Write-Host "=========================================="
+        
+        # Giữ workflow chạy để duy trì phiên RDP
         while ($true) { Start-Sleep -Seconds 3600 }
