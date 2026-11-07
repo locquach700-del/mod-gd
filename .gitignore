@@ -1,0 +1,11 @@
+/build/
+/build-*/
+/.geode/
+/.vscode/
+/.idea/
+*.pdb
+*.ilk
+*.obj
+*.lib
+*.dll
+*.geode
