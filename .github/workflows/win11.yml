@@ -18,7 +18,8 @@ jobs:
       run: |
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
         Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString "12345" -AsPlainText -Force)
+        $SecPassword = ConvertTo-SecureString "P@ssword123!" -AsPlainText -Force
+        Set-LocalUser -Name "runneradmin" -Password $SecPassword
     - name: Start RDP Tunnel
       run: |
         Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389"
@@ -27,7 +28,7 @@ jobs:
         $rdpAddress = $ngrokApi.tunnels[0].public_url -replace 'tcp://', ''
         Write-Host "=========================================="
         Write-Host "RDP Address: $rdpAddress"
-        Write-Host "Username   : runneradmin"
-        Write-Host "Password   : 12345"
+        Write-Host "Username   : admin"
+        Write-Host "Password   : Loc123!"
         Write-Host "=========================================="
         while ($true) { Start-Sleep -Seconds 3600 }
