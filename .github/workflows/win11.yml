@@ -1,65 +1,69 @@
-name: Windows11-RDP
+name: Windows Runner Diagnostics
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  build:
+  diagnostics:
+    name: Check Windows runner
     runs-on: windows-2022
+    timeout-minutes: 10
+
     steps:
-    - name: Enable Remote Desktop & Configure User
-      run: |
-        $ErrorActionPreference = 'Stop'
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-        $SecPassword = ConvertTo-SecureString "P@ssword123!" -AsPlainText -Force
-        Set-LocalUser -Name "runneradmin" -Password $SecPassword
-        Write-Host "RDP and user configured successfully."
-        
-    - name: Start TCP Tunnel via Serveo
-      run: |
-        Write-Host "Starting TCP tunnel via Serveo..."
-        
-        Remove-Item "ssh_out.log", "ssh_err.log" -ErrorAction SilentlyContinue
-        
-        $process = Start-Process -FilePath "ssh.exe" -ArgumentList "-R 0:localhost:3389 -o StrictHostKeyChecking=no -o ServerAliveInterval=60 serveo.net" -PassThru -RedirectStandardOutput "ssh_out.log" -RedirectStandardError "ssh_err.log"
-        
-        # Tăng số lần thử lên 40 lần (mỗi lần 1.5 giây) để đủ thời gian cho SSH thiết lập kết nối
-        $maxAttempts = 40
-        $attempt = 0
-        $tunnelUrl = $null
-        
-        while ($attempt -lt $maxAttempts -and -not $tunnelUrl) {
-            Start-Sleep -Seconds 1.5
-            $attempt++
-            
-            if ($process.HasExited) {
-                Write-Host "[-] SSH process exited prematurely."
-                break
+      - name: Collect Windows environment details
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $os = Get-CimInstance -ClassName Win32_OperatingSystem
+          $cpu = Get-CimInstance -ClassName Win32_Processor | Select-Object -First 1
+          $computer = Get-CimInstance -ClassName Win32_ComputerSystem
+          $disk = Get-CimInstance -ClassName Win32_LogicalDisk -Filter "DeviceID='$($env:SystemDrive)'"
+
+          $report = [ordered]@{
+            ComputerName = $env:COMPUTERNAME
+            OperatingSystem = $os.Caption
+            OSVersion = $os.Version
+            BuildNumber = $os.BuildNumber
+            Architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+            Processor = $cpu.Name
+            LogicalProcessors = $env:NUMBER_OF_PROCESSORS
+            TotalMemoryGB = [math]::Round($computer.TotalPhysicalMemory / 1GB, 2)
+            SystemDriveFreeGB = [math]::Round($disk.FreeSpace / 1GB, 2)
+            PowerShellVersion = $PSVersionTable.PSVersion.ToString()
+            CheckedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+          }
+
+          $report | ConvertTo-Json -Depth 4 | Out-File -FilePath "$env:GITHUB_WORKSPACE\windows-report.json" -Encoding utf8
+          Get-Content "$env:GITHUB_WORKSPACE\windows-report.json"
+
+      - name: Verify essential tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $requiredTools = @('git', 'pwsh')
+          foreach ($tool in $requiredTools) {
+            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+              throw "Required tool not found: $tool"
             }
-            
-            $logContent = ""
-            if (Test-Path "ssh_out.log") { $logContent += Get-Content "ssh_out.log" -Raw -ErrorAction SilentlyContinue }
-            if (Test-Path "ssh_err.log") { $logContent += Get-Content "ssh_err.log" -Raw -ErrorAction SilentlyContinue }
-            
-            if ($logContent -match '([a-zA-Z0-9.-]+\.(?:serveo\.net|serveousercontent\.com):[0-9]+)') {
-                $tunnelUrl = $Matches[1]
-                break
+            Write-Host "OK: $tool"
+          }
+
+          $optionalTools = @('python', 'node', 'dotnet', 'cmake')
+          foreach ($tool in $optionalTools) {
+            if (Get-Command $tool -ErrorAction SilentlyContinue) {
+              Write-Host "Available: $tool"
+            } else {
+              Write-Host "Not installed (optional): $tool"
             }
-            Write-Host "Waiting for Serveo endpoint... attempt $attempt of $maxAttempts"
-        }
-        
-        if (-not $tunnelUrl) {
-            Write-Host "=== SSH STDOUT ==="
-            Get-Content "ssh_out.log" -ErrorAction SilentlyContinue
-            Write-Host "=== SSH STDERR ==="
-            Get-Content "ssh_err.log" -ErrorAction SilentlyContinue
-            exit 1
-        }
-        
-        Write-Host "=========================================="
-        Write-Host "RDP Address: $tunnelUrl"
-        Write-Host "Username   : runneradmin"
-        Write-Host "Password   : P@ssword123!"
-        Write-Host "=========================================="
-        
-        while ($true) { Start-Sleep -Seconds 3600 }
+          }
+
+      - name: Upload diagnostics report
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-runner-report
+          path: windows-report.json
+          if-no-files-found: error
+          retention-days: 7
