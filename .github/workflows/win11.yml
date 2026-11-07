@@ -6,16 +6,16 @@ jobs:
   build:
     runs-on: windows-2022
     steps:
-    - name: Install Ngrok via Winget
+    - name: Download & Setup Ngrok Direct
       run: |
         $ErrorActionPreference = 'Stop'
-        Write-Host "Installing Ngrok..."
-        winget install --id Ngrok.Ngrok -e --accept-source-agreements --accept-package-agreements
-        # Refresh environment variables so ngrok command is immediately available in path
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+        Write-Host "Downloading Ngrok from official GitHub release..."
+        $url = "https://bin.equinox.io/c/bnyj1vqlaSp/ngrok-v3-stable-windows-amd64.zip"
+        Invoke-WebRequest -Uri $url -OutFile "ngrok.zip"
+        Expand-Archive ngrok.zip -DestinationPath .\ngrok -Force
     - name: Authenticate Ngrok
       run: |
-        ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+        .\ngrok\ngrok.exe config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
     - name: Enable Remote Desktop
       run: |
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
@@ -24,7 +24,7 @@ jobs:
         Set-LocalUser -Name "runneradmin" -Password $SecPassword
     - name: Start RDP Tunnel
       run: |
-        $process = Start-Process -FilePath "ngrok.exe" -ArgumentList "tcp 3389" -PassThru -RedirectStandardOutput "ngrok_out.log" -RedirectStandardError "ngrok_err.log"
+        $process = Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389" -PassThru -RedirectStandardOutput "ngrok_out.log" -RedirectStandardError "ngrok_err.log"
         
         $maxAttempts = 20
         $attempt = 0
