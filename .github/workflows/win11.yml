@@ -22,7 +22,8 @@ jobs:
         Set-LocalUser -Name "runneradmin" -Password $SecPassword
     - name: Start RDP Tunnel
       run: |
-        Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389" -WindowStyle Hidden
+        # Start ngrok in background using Job to capture output and keep API responsive
+        Start-Job -ScriptBlock { .\ngrok\ngrok.exe tcp 3389 }
         
         $maxAttempts = 20
         $attempt = 0
@@ -42,7 +43,8 @@ jobs:
         }
         
         if (-not $success) {
-            Write-Host "Error: Ngrok API failed to start."
+            Write-Host "--- NGROK DEBUG LOGS ---"
+            Get-Content "$env:USERPROFILE\.ngrok2\ngrok.log" -ErrorAction SilentlyContinue
             exit 1
         }
         
