@@ -218,7 +218,7 @@ class $modify(ModGDBaseGameLayer, GJBaseGameLayer) {
 
         g_inCommands = wasInCommands;
     }
-}
+};
 
 class $modify(ModGDPlayLayer, PlayLayer) {
     struct Fields {
