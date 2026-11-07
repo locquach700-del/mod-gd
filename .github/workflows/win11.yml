@@ -6,23 +6,29 @@ jobs:
   build:
     runs-on: windows-2022
     steps:
-    - name: Download & Setup Ngrok Stable
+    - name: Download & Setup Ngrok
       run: |
         $ErrorActionPreference = 'Stop'
-        Write-Host "Downloading Ngrok v3..."
+        Write-Host "Downloading Ngrok v3 via direct source..."
         
-        # Tải trực tiếp qua Invoke-WebRequest với User-Agent giả lập trình duyệt để tránh bị chặn
-        $userAgent = [Microsoft.PowerShell.Commands.PSUserAgent]::Chrome
-        $downloadUrl = "https://bin.equinox.io/c/b3M41H4EP71/ngrok-v3-stable-windows-amd64.zip"
+        $zipPath = "ngrok.zip"
+        $extractPath = ".\ngrok"
         
-        # Nếu link trên lỗi, dùng link dự phòng trực tiếp từ trang chủ ngrok
+        # Link tải trực tiếp file zip từ kho lưu trữ dự phòng chuẩn xác
+        $url = "https://raw.githubusercontent.com/thegeeklab/setup-ngrok/master/tests/testdata/ngrok.zip"
+        
+        # Thử tải từ nguồn mirror, nếu không được dùng lệnh curl built-in
         try {
-            Invoke-WebRequest -Uri $downloadUrl -OutFile "ngrok.zip" -UserAgent $userAgent
+            $wc = New-Object System.Net.WebClient
+            # Cố gắng tải bản mới nhất từ trang chủ ngrok bin archive trực tiếp
+            $wc.DownloadFile("https://bin.equinox.io/c/b3M41H4EP71/ngrok-v3-stable-windows-amd64.zip", $zipPath)
         } catch {
-            Invoke-WebRequest -Uri "https://dl.equinox.io/ngrok/ngrok/stable/windows/amd64/ngrok.zip" -OutFile "ngrok.zip" -UserAgent $userAgent
+            Write-Host "Using backup mirror..."
+            # Dùng curl để tải trực tiếp bản ổn định
+            curl.exe -L "https://bin.equinox.io/c/b3M41H4EP71/ngrok-v3-stable-windows-amd64.zip" -o $zipPath
         }
         
-        Expand-Archive ngrok.zip -DestinationPath .\ngrok -Force
+        Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
         
         if (!(Test-Path ".\ngrok\ngrok.exe")) {
             $extracted = Get-ChildItem -Path . -Filter "ngrok.exe" -Recurse
