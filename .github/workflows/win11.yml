@@ -6,33 +6,17 @@ jobs:
   build:
     runs-on: windows-2022
     steps:
-    - name: Download & Setup Ngrok via Official Redirect
+    - name: Install Ngrok via Chocolatey
       run: |
         $ErrorActionPreference = 'Stop'
-        Write-Host "Downloading Ngrok v3 via official secure redirect..."
+        Write-Host "Installing Ngrok via Chocolatey..."
+        choco install ngrok -y
         
-        # Sử dụng curl với cờ -L để tự động bám theo link chuyển hướng mới nhất từ trang chủ ngrok
-        curl.exe -L "https://bin.equinox.io/c/b3M41H4EP71/ngrok-v3-stable-windows-amd64.zip" -o "ngrok.zip"
-        
-        $fileSize = (Get-Item "ngrok.zip").Length
-        Write-Host "Downloaded file size: $fileSize bytes"
-        
-        if ($fileSize -lt 10000) {
-            Write-Host "Download failed or returned an error page. Trying alternative download method..."
-            # Dùng PowerShell Invoke-RestMethod gọi trực tiếp trang download chính thức
-            $downloadUrl = "https://bin.equinox.io/a/b3M41H4EP71/ngrok-stable-windows-amd64.zip"
-            Invoke-WebRequest -Uri "https://desktop.ngrok.com/windows/ngrok.zip" -OutFile "ngrok.zip"
-        }
-        
-        Expand-Archive -Path "ngrok.zip" -DestinationPath ".\ngrok" -Force
-        
-        if (!(Test-Path ".\ngrok\ngrok.exe")) {
-            $extracted = Get-ChildItem -Path . -Filter "ngrok.exe" -Recurse
-            if ($extracted) {
-                Move-Item $extracted[0].FullName ".\ngrok\ngrok.exe" -Force
-            }
-        }
-        Write-Host "Ngrok extracted successfully!"
+        # Tạo thư mục làm việc ngrok và copy file exe vào để tương thích với các bước tiếp theo
+        mkdir .\ngrok -Force
+        $ngrokPath = (Get-Command ngrok).Source
+        Copy-Item $ngrokPath ".\ngrok\ngrok.exe" -Force
+        Write-Host "Ngrok successfully installed at .\ngrok\ngrok.exe"
     - name: Authenticate Ngrok
       run: |
         .\ngrok\ngrok.exe config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
