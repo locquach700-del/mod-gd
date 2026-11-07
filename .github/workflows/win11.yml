@@ -6,20 +6,20 @@ jobs:
   build:
     runs-on: windows-2022
     steps:
-    - name: Download & Setup Ngrok Stable Mirror
+    - name: Download & Setup Ngrok Stable
       run: |
         $ErrorActionPreference = 'Stop'
-        Write-Host "Downloading Ngrok v3 from stable mirror..."
+        Write-Host "Downloading Ngrok v3..."
         
-        # Sử dụng link trực tiếp từ trang tải chính thức của ngrok không qua redirect version tag
-        $url = "https://bin.equinox.io/c/b3M41H4EP71/ngrok-v3-stable-windows-amd64.zip"
+        # Tải trực tiếp qua Invoke-WebRequest với User-Agent giả lập trình duyệt để tránh bị chặn
+        $userAgent = [Microsoft.PowerShell.Commands.PSUserAgent]::Chrome
+        $downloadUrl = "https://bin.equinox.io/c/b3M41H4EP71/ngrok-v3-stable-windows-amd64.zip"
         
-        # Thử tải từ mirror chính, nếu lỗi dùng mirror phụ
+        # Nếu link trên lỗi, dùng link dự phòng trực tiếp từ trang chủ ngrok
         try {
-            Invoke-WebRequest -Uri "https://dl.equinox.io/ngrok/ngrok/stable/windows/amd64/ngrok.zip" -OutFile "ngrok.zip"
+            Invoke-WebRequest -Uri $downloadUrl -OutFile "ngrok.zip" -UserAgent $userAgent
         } catch {
-            # Mirror dự phòng an toàn
-            Invoke-WebRequest -Uri "https://github.com/dotronglong/ngrok/raw/master/ngrok-stable-windows-amd64.zip" -OutFile "ngrok.zip"
+            Invoke-WebRequest -Uri "https://dl.equinox.io/ngrok/ngrok/stable/windows/amd64/ngrok.zip" -OutFile "ngrok.zip" -UserAgent $userAgent
         }
         
         Expand-Archive ngrok.zip -DestinationPath .\ngrok -Force
