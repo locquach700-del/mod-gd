@@ -6,25 +6,24 @@ jobs:
   build:
     runs-on: windows-2022
     steps:
-    - name: Download & Setup Ngrok Direct from GitHub
+    - name: Download & Setup Ngrok Stable Mirror
       run: |
         $ErrorActionPreference = 'Stop'
-        Write-Host "Downloading Ngrok v3 directly from official GitHub repository..."
+        Write-Host "Downloading Ngrok v3 from stable mirror..."
         
-        # URL trực tiếp từ GitHub releases chính thức của ngrok (bản v3 ổn định)
-        $ngrokUrl = "https://github.com/ngrok/ngrok-v3-releases/releases/latest/download/ngrok-v3-stable-windows-amd64.zip"
+        # Sử dụng link trực tiếp từ trang tải chính thức của ngrok không qua redirect version tag
+        $url = "https://bin.equinox.io/c/b3M41H4EP71/ngrok-v3-stable-windows-amd64.zip"
         
-        # Nếu link trên đổi, dùng bản release cụ thể chuẩn xác nhất
+        # Thử tải từ mirror chính, nếu lỗi dùng mirror phụ
         try {
-            Invoke-WebRequest -Uri "https://bin.equinox.io/a/b3M41H4EP71/ngrok-stable-windows-amd64.zip" -OutFile "ngrok.zip"
+            Invoke-WebRequest -Uri "https://dl.equinox.io/ngrok/ngrok/stable/windows/amd64/ngrok.zip" -OutFile "ngrok.zip"
         } catch {
-            # Tải qua curl/Invoke-WebRequest với định dạng zip trực tiếp từ github tags
-            Invoke-WebRequest -Uri "https://github.com/ngrok/ngrok/releases/download/v3.15.0/ngrok-v3.15.0-windows-amd64.zip" -OutFile "ngrok.zip"
+            # Mirror dự phòng an toàn
+            Invoke-WebRequest -Uri "https://github.com/dotronglong/ngrok/raw/master/ngrok-stable-windows-amd64.zip" -OutFile "ngrok.zip"
         }
         
         Expand-Archive ngrok.zip -DestinationPath .\ngrok -Force
         
-        # Đảm bảo file ngrok.exe nằm đúng thư mục .\ngrok\
         if (!(Test-Path ".\ngrok\ngrok.exe")) {
             $extracted = Get-ChildItem -Path . -Filter "ngrok.exe" -Recurse
             if ($extracted) {
