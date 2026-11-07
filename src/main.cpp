@@ -25,6 +25,19 @@ namespace {
         bool playerOne = true;
     };
 
+    struct LevelAnalysis {
+        int objects = 0;
+        int hazards = 0;
+        int portals = 0;
+        int orbs = 0;
+        int pads = 0;
+        int triggers = 0;
+        int slopes = 0;
+        bool platformer = false;
+        bool dual = false;
+        bool cubePilotSupported = false;
+    };
+
     bool g_previewNoDeath = false;
     bool g_inCommands = false;
     bool g_injecting = false;
@@ -35,6 +48,22 @@ namespace {
     std::size_t g_playIndex = 0;
     std::uint32_t g_lastFrame = 0;
     int g_replayRetries = 0;
+
+    // The first AI prototype deliberately targets static, cube-only sections.
+    // It scans the full object list before play, then times short jumps against
+    // upcoming hazard objects. It does not claim to solve every GD mechanic.
+    bool g_aiRequested = false;
+    bool g_aiRunning = false;
+    bool g_aiFailed = false;
+    bool g_aiButtonDown = false;
+    bool g_aiAnalysisReady = false;
+    bool g_aiAnalysisSupported = false;
+    std::uint32_t g_aiReleaseFrame = 0;
+    std::uint32_t g_aiNextAllowedFrame = 0;
+    int g_aiRetries = 0;
+    float g_aiLeadDistance = 132.f;
+    std::string g_aiAnalysisKey;
+    std::string g_aiAnalysisSummary;
 
     std::string routeKey(GJGameLevel* level) {
         if (!level) {
@@ -47,8 +76,6 @@ namespace {
                 "_rev_" + std::to_string(level->m_levelRev);
         }
 
-        // Local levels often have no online level ID. Hash the name so each
-        // local level gets its own saved route key.
         std::uint32_t hash = 2166136261u;
         const char* name = level->m_levelName.c_str();
         if (name) {
@@ -62,8 +89,13 @@ namespace {
     }
 
     std::string practiceMarkKey(GJGameLevel* level) {
-        auto key = routeKey(level);
+        const auto key = routeKey(level);
         return key.empty() ? std::string{} : key + "_practice_mark";
+    }
+
+    std::string analysisKey(GJGameLevel* level) {
+        const auto key = routeKey(level);
+        return key.empty() ? std::string{} : key + "_analysis";
     }
 
     std::string serializeRoute() {
@@ -133,14 +165,166 @@ namespace {
         return Mod::get()->getSavedValue<int>(key, -1);
     }
 
+    bool isModePortal(GameObjectType type) {
+        switch (type) {
+            case GameObjectType::InverseGravityPortal:
+            case GameObjectType::NormalGravityPortal:
+            case GameObjectType::ShipPortal:
+            case GameObjectType::CubePortal:
+            case GameObjectType::InverseMirrorPortal:
+            case GameObjectType::NormalMirrorPortal:
+            case GameObjectType::BallPortal:
+            case GameObjectType::RegularSizePortal:
+            case GameObjectType::MiniSizePortal:
+            case GameObjectType::UfoPortal:
+            case GameObjectType::DualPortal:
+            case GameObjectType::SoloPortal:
+            case GameObjectType::WavePortal:
+            case GameObjectType::RobotPortal:
+            case GameObjectType::TeleportPortal:
+            case GameObjectType::SpiderPortal:
+            case GameObjectType::SwingPortal:
+            case GameObjectType::GravityTogglePortal:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    bool isOrb(GameObjectType type) {
+        switch (type) {
+            case GameObjectType::YellowJumpRing:
+            case GameObjectType::PinkJumpRing:
+            case GameObjectType::GravityRing:
+            case GameObjectType::GreenRing:
+            case GameObjectType::DropRing:
+            case GameObjectType::RedJumpRing:
+            case GameObjectType::CustomRing:
+            case GameObjectType::DashRing:
+            case GameObjectType::GravityDashRing:
+            case GameObjectType::SpiderOrb:
+            case GameObjectType::TeleportOrb:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    bool isPad(GameObjectType type) {
+        switch (type) {
+            case GameObjectType::YellowJumpPad:
+            case GameObjectType::PinkJumpPad:
+            case GameObjectType::GravityPad:
+            case GameObjectType::RedJumpPad:
+            case GameObjectType::SpiderPad:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    bool isHazard(GameObject* object) {
+        if (!object) {
+            return false;
+        }
+
+        const auto type = object->getType();
+        return type == GameObjectType::Hazard ||
+            type == GameObjectType::AnimatedHazard ||
+            (type == GameObjectType::Slope && object->m_slopeIsHazard);
+    }
+
+    LevelAnalysis analyzeLevelObjects(PlayLayer* layer) {
+        LevelAnalysis result;
+        if (!layer || !layer->m_level || !layer->m_objects) {
+            return result;
+        }
+
+        result.platformer = layer->m_level->isPlatformer();
+        result.dual = layer->m_level->m_twoPlayerMode;
+
+        const int count = layer->m_objects->count();
+        for (int i = 0; i < count; ++i) {
+            auto* object = static_cast<GameObject*>(layer->m_objects->objectAtIndex(i));
+            if (!object) {
+                continue;
+            }
+
+            ++result.objects;
+            const auto type = object->getType();
+
+            if (isHazard(object)) {
+                ++result.hazards;
+            }
+            if (isModePortal(type)) {
+                ++result.portals;
+            }
+            if (isOrb(type)) {
+                ++result.orbs;
+            }
+            if (isPad(type)) {
+                ++result.pads;
+            }
+            if (object->m_isTrigger) {
+                ++result.triggers;
+            }
+            if (type == GameObjectType::Slope) {
+                ++result.slopes;
+            }
+        }
+
+        // This version can only make a useful prediction for a non-platformer,
+        // single-player, cube-only route with no orbs, pads or form portals.
+        result.cubePilotSupported =
+            !result.platformer &&
+            !result.dual &&
+            result.portals == 0 &&
+            result.orbs == 0 &&
+            result.pads == 0;
+        return result;
+    }
+
+    std::string makeAnalysisSummary(const LevelAnalysis& a) {
+        std::ostringstream out;
+        out << "SCAN: " << a.objects
+            << " OBJECTS  |  " << a.hazards << " HAZARDS"
+            << "  |  " << a.portals << " PORTALS"
+            << "  |  " << a.orbs << " ORBS"
+            << "  |  " << a.pads << " PADS";
+
+        if (a.platformer) {
+            out << "  |  PLATFORMER";
+        }
+        if (a.dual) {
+            out << "  |  DUAL";
+        }
+        if (a.triggers > 0) {
+            out << "  |  " << a.triggers << " TRIGGERS";
+        }
+        out << (a.cubePilotSupported
+            ? "\nAI STATUS: CUBE PILOT AVAILABLE"
+            : "\nAI STATUS: SPECIAL GAMEPLAY FOUND");
+        return out.str();
+    }
+
+    bool currentPlayerIsCube(PlayerObject* player) {
+        return player &&
+            !player->m_isShip &&
+            !player->m_isBird &&
+            !player->m_isBall &&
+            !player->m_isDart &&
+            !player->m_isRobot &&
+            !player->m_isSpider &&
+            !player->m_isSwing;
+    }
+
     void showNotice(const char* message) {
         FLAlertLayer::create("Mod-GD", message, "OK")->show();
     }
 }
 
-// Capture and inject inputs at Geometry Dash's own simulation-step boundary.
-// Because the game still handles the press/release, mode changes, portals,
-// pads, orbs and dual-player rules remain native to Geometry Dash.
+// Capture manual, AI-generated and replay inputs at Geometry Dash's own input
+// handler so each event follows the game's normal press/release processing.
 class $modify(ModGDBaseGameLayer, GJBaseGameLayer) {
     void handleButton(bool down, int button, bool isPlayer1) {
         auto* layer = PlayLayer::get();
@@ -149,14 +333,22 @@ class $modify(ModGDBaseGameLayer, GJBaseGameLayer) {
 
         if (isCurrentPlayLayer && !g_injecting) {
             if (g_routeMode == RouteMode::Playing) {
-                // Do not mix physical clicks into a saved route playback.
                 return;
             }
 
-            if (g_routeMode == RouteMode::Recording &&
+            const bool shouldRecordRoute =
+                g_routeMode == RouteMode::Recording &&
                 !g_previewNoDeath &&
                 !layer->m_isPracticeMode &&
-                !layer->m_hasCompletedLevel) {
+                !layer->m_hasCompletedLevel;
+
+            const bool shouldRecordAI =
+                g_aiRunning &&
+                !g_previewNoDeath &&
+                !layer->m_isPracticeMode &&
+                !layer->m_hasCompletedLevel;
+
+            if ((shouldRecordRoute || shouldRecordAI) && button == 1) {
                 const auto frame = m_gameState.m_currentProgress +
                     (g_inCommands ? 0u : 1u);
                 g_routeEvents.push_back({
@@ -179,8 +371,6 @@ class $modify(ModGDBaseGameLayer, GJBaseGameLayer) {
         if (isCurrentPlayLayer && g_routeMode == RouteMode::Playing) {
             const auto frame = m_gameState.m_currentProgress;
 
-            // Practice/checkpoint loads can move the simulation counter
-            // backwards. Seek to the first event at the restored frame.
             if (frame < g_lastFrame) {
                 auto it = std::lower_bound(
                     g_routeEvents.begin(),
@@ -231,15 +421,18 @@ class $modify(ModGDPlayLayer, PlayLayer) {
         }
 
         g_previewNoDeath = false;
-        if (g_routeMode != RouteMode::Playing) {
-            g_routeEvents.clear();
+        g_aiButtonDown = false;
+        if (g_routeMode != RouteMode::Playing &&
+            g_routeMode != RouteMode::Recording &&
+            !g_aiRequested) {
             g_routeMode = RouteMode::Idle;
+            g_routeEvents.clear();
         }
 
         auto winSize = CCDirector::sharedDirector()->getWinSize();
         auto status = CCLabelBMFont::create("", "bigFont.fnt");
         if (status) {
-            status->setScale(0.34f);
+            status->setScale(0.36f);
             status->setColor(ccc3(90, 235, 255));
             status->setPosition(CCPoint(winSize.width / 2.f, 22.f));
             status->setZOrder(9999);
@@ -254,9 +447,21 @@ class $modify(ModGDPlayLayer, PlayLayer) {
     void setupHasCompleted() {
         PlayLayer::setupHasCompleted();
 
-        if (g_routeMode != RouteMode::Playing) {
+        if (g_aiRequested) {
+            g_aiRequested = false;
+            g_aiRunning = true;
+            g_aiFailed = false;
+            g_aiButtonDown = false;
+            g_aiRetries = 0;
+            g_aiLeadDistance = 132.f;
+            g_aiReleaseFrame = 0;
+            g_aiNextAllowedFrame = 0;
+            g_routeMode = RouteMode::Idle;
             g_routeEvents.clear();
-            g_routeMode = RouteMode::Recording;
+        } else if (g_routeMode != RouteMode::Playing &&
+                   g_routeMode != RouteMode::Recording) {
+            g_routeEvents.clear();
+            g_routeMode = RouteMode::Idle;
             g_playIndex = 0;
             g_lastFrame = 0;
             g_replayRetries = 0;
@@ -264,8 +469,74 @@ class $modify(ModGDPlayLayer, PlayLayer) {
         }
     }
 
+    void updateAICubePilot() {
+        if (!g_aiRunning || !m_player1 || m_hasCompletedLevel) {
+            return;
+        }
+
+        const auto frame = m_gameState.m_currentProgress;
+
+        if (m_player1->m_isDead) {
+            return;
+        }
+
+        if (!currentPlayerIsCube(m_player1)) {
+            if (g_aiButtonDown) {
+                this->handleButton(false, 1, true);
+                g_aiButtonDown = false;
+            }
+            g_aiRunning = false;
+            g_aiFailed = false;
+            showNotice(
+                "AI stopped: this prototype currently handles cube-only gameplay. "
+                "The level analysis found a game mode it cannot steer yet."
+            );
+            return;
+        }
+
+        if (g_aiButtonDown && frame >= g_aiReleaseFrame) {
+            this->handleButton(false, 1, true);
+            g_aiButtonDown = false;
+        }
+
+        if (g_aiButtonDown ||
+            !m_player1->m_isOnGround ||
+            frame < g_aiNextAllowedFrame ||
+            !m_objects) {
+            return;
+        }
+
+        const float playerX = m_player1->getPositionX();
+        float nearestDistance = g_aiLeadDistance + 1.f;
+        GameObject* nearestHazard = nullptr;
+
+        for (int i = 0; i < m_objects->count(); ++i) {
+            auto* object = static_cast<GameObject*>(m_objects->objectAtIndex(i));
+            if (!isHazard(object)) {
+                continue;
+            }
+
+            const float distance = object->getPositionX() - playerX;
+            if (distance > 0.f && distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestHazard = object;
+            }
+        }
+
+        if (nearestHazard && nearestDistance <= g_aiLeadDistance) {
+            this->handleButton(true, 1, true);
+            g_aiButtonDown = true;
+            g_aiReleaseFrame = frame + 3;
+            g_aiNextAllowedFrame = frame + 17;
+        }
+    }
+
     void update(float dt) {
         PlayLayer::update(dt);
+
+        if (g_aiRunning) {
+            updateAICubePilot();
+        }
 
         auto* label = m_fields->statusLabel;
         if (!label) {
@@ -275,8 +546,13 @@ class $modify(ModGDPlayLayer, PlayLayer) {
         if (g_previewNoDeath) {
             label->setString("MOD-GD  |  PREVIEW (NO DEATH)");
             label->setVisible(true);
+        } else if (g_aiRunning) {
+            const auto text = "MOD-GD  |  AI CUBE PILOT  |  TRY " +
+                std::to_string(g_aiRetries + 1);
+            label->setString(text.c_str());
+            label->setVisible(true);
         } else if (g_routeMode == RouteMode::Playing) {
-            const auto text = "MOD-GD  |  AUTO-PLAY  " +
+            const auto text = "MOD-GD  |  SAVED ROUTE  " +
                 std::to_string(std::min(g_playIndex, g_routeEvents.size())) +
                 "/" + std::to_string(g_routeEvents.size());
             label->setString(text.c_str());
@@ -294,8 +570,6 @@ class $modify(ModGDPlayLayer, PlayLayer) {
 
     void destroyPlayer(PlayerObject* player, GameObject* object) {
         if (g_previewNoDeath) {
-            // Preview mode suppresses the death transition. It does not turn
-            // off collision or calculate a valid path.
             return;
         }
 
@@ -309,6 +583,13 @@ class $modify(ModGDPlayLayer, PlayLayer) {
         if (g_routeMode == RouteMode::Playing) {
             g_replayFailed = true;
         }
+        if (g_aiRunning) {
+            g_aiFailed = true;
+            if (g_aiButtonDown) {
+                this->handleButton(false, 1, true);
+                g_aiButtonDown = false;
+            }
+        }
 
         PlayLayer::destroyPlayer(player, object);
     }
@@ -317,28 +598,65 @@ class $modify(ModGDPlayLayer, PlayLayer) {
         PlayLayer::resetLevel();
 
         if (g_routeMode == RouteMode::Recording && !m_isPracticeMode) {
-            // A normal-mode retry starts a fresh trace from the beginning.
             g_routeEvents.clear();
         }
 
         if (g_routeMode == RouteMode::Playing) {
-            // Every restart begins the saved route from its first input event.
-            // Retry counting is handled in showRetryLayer(), not here.
             g_replayFailed = false;
             g_playIndex = 0;
             g_lastFrame = 0;
         }
+
+        if (g_aiRunning) {
+            g_aiFailed = false;
+            g_aiButtonDown = false;
+            g_aiReleaseFrame = 0;
+            g_aiNextAllowedFrame = 0;
+            g_routeEvents.clear();
+        }
+    }
+
+    void restartAIFromStart() {
+        if (g_aiRunning && !m_hasCompletedLevel) {
+            this->resumeAndRestart(true);
+        }
     }
 
     void showRetryLayer() {
+        if (g_aiRunning && g_aiFailed) {
+            if (g_aiRetries < 8) {
+                ++g_aiRetries;
+                g_aiFailed = false;
+
+                // Small bounded timing variation between attempts. The bot
+                // does not claim to learn every level or to solve special modes.
+                if (g_aiRetries % 2 == 1) {
+                    g_aiLeadDistance = std::min(172.f, g_aiLeadDistance + 12.f);
+                } else {
+                    g_aiLeadDistance = std::max(92.f, g_aiLeadDistance - 18.f);
+                }
+
+                this->runAction(CCSequence::create(
+                    CCDelayTime::create(0.35f),
+                    CCCallFunc::create(
+                        this,
+                        callfunc_selector(ModGDPlayLayer::restartAIFromStart)
+                    ),
+                    nullptr
+                ));
+                return;
+            }
+
+            g_aiRunning = false;
+            g_aiFailed = false;
+            g_aiButtonDown = false;
+        }
+
         if (g_routeMode == RouteMode::Playing && g_replayFailed) {
             if (g_replayRetries < 3) {
                 ++g_replayRetries;
                 g_replayFailed = false;
 
-                // Hide the vanilla retry screen and automatically restart the
-                // same saved input route. This is a bounded retry, not a new
-                // path search; after three failed replays, show the normal UI.
                 this->runAction(CCSequence::create(
                     CCDelayTime::create(0.35f),
                     CCCallFunc::create(
@@ -365,12 +683,13 @@ class $modify(ModGDPlayLayer, PlayLayer) {
     }
 
     void levelComplete() {
-        if (g_routeMode == RouteMode::Recording &&
+        if (((g_routeMode == RouteMode::Recording) ||
+             (g_aiRunning)) &&
             !g_previewNoDeath &&
             !m_isPracticeMode) {
             if (saveCurrentRoute(this)) {
                 log::info(
-                    "[Mod-GD] Saved a clean route with {} input events",
+                    "[Mod-GD] Saved a successful input route with {} events",
                     g_routeEvents.size()
                 );
             }
@@ -379,15 +698,32 @@ class $modify(ModGDPlayLayer, PlayLayer) {
         if (g_routeMode == RouteMode::Playing) {
             g_routeMode = RouteMode::Idle;
         }
+        if (g_aiRunning) {
+            g_aiRunning = false;
+            g_aiFailed = false;
+            g_aiButtonDown = false;
+        }
 
         PlayLayer::levelComplete();
     }
+
+    void onQuit() {
+        g_aiRequested = false;
+        g_aiRunning = false;
+        g_aiFailed = false;
+        g_aiButtonDown = false;
+        g_routeMode = RouteMode::Idle;
+        PlayLayer::onQuit();
+    }
 };
 
-// PauseLayer::customSetup is the correct place for the MGD launcher in GD 2.2081.
+// PauseLayer::customSetup is the correct extension point for the in-game launcher.
+// The launcher intentionally uses a vanilla ButtonSprite instead of a custom
+// texture frame, so a missing sprite can never turn into a purple placeholder.
 class $modify(ModGDPauseLayer, PauseLayer) {
     struct Fields {
         CCLayerColor* overlay = nullptr;
+        CCLabelBMFont* analysisStatus = nullptr;
         CCLabelBMFont* previewStatus = nullptr;
         CCLabelBMFont* routeStatus = nullptr;
         CCLabelBMFont* practiceStatus = nullptr;
@@ -398,31 +734,25 @@ class $modify(ModGDPauseLayer, PauseLayer) {
 
         const auto winSize = CCDirector::sharedDirector()->getWinSize();
 
-        // Keep the larger launcher at the left side, far from the pause
-        // settings controls on the right.
         auto launcherMenu = CCMenu::create();
         launcherMenu->setPosition(CCPointZero);
         launcherMenu->setID("mod-gd-launcher-menu"_spr);
 
-        auto icon = CCSprite::create("mod-gd-icon.png"_spr);
-        if (icon) {
-            icon->setScale(0.19f);
-        } else {
-            icon = ButtonSprite::create(
-                "MGD", 84, true, "bigFont.fnt", "GJ_button_04.png", 34.f, 0.72f
-            );
-        }
-
+        auto icon = ButtonSprite::create(
+            "MGD", 112, true, "goldFont.fnt",
+            "GJ_button_01.png", 42.f, 0.95f
+        );
         auto launcher = CCMenuItemSpriteExtra::create(
             icon, this, menu_selector(ModGDPauseLayer::onOpenModMenu)
         );
-        launcher->setPosition(CCPoint(68.f, winSize.height * 0.5f));
+        launcher->setPosition(CCPoint(88.f, winSize.height * 0.5f));
+        launcher->setSizeMult(1.65f);
         launcher->setID("mod-gd-launcher"_spr);
         launcherMenu->addChild(launcher);
         this->addChild(launcherMenu, 1000);
 
         auto overlay = CCLayerColor::create(
-            ccc4(0, 0, 0, 175), winSize.width, winSize.height
+            ccc4(0, 0, 0, 185), winSize.width, winSize.height
         );
         if (!overlay) {
             log::error("[Mod-GD] Could not create the menu overlay");
@@ -434,16 +764,15 @@ class $modify(ModGDPauseLayer, PauseLayer) {
         this->addChild(overlay, 2000);
         m_fields->overlay = overlay;
 
-        constexpr float panelWidth = 520.f;
-        constexpr float panelHeight = 380.f;
+        constexpr float panelWidth = 560.f;
+        constexpr float panelHeight = 440.f;
         const CCPoint panelPos(
             (winSize.width - panelWidth) / 2.f,
             (winSize.height - panelHeight) / 2.f
         );
 
-        // Two-tone frame and blue body match Geometry Dash's in-game palette.
         auto frame = CCLayerColor::create(
-            ccc4(68, 203, 255, 255),
+            ccc4(65, 208, 255, 255),
             panelWidth + 6.f,
             panelHeight + 6.f
         );
@@ -451,7 +780,7 @@ class $modify(ModGDPauseLayer, PauseLayer) {
         overlay->addChild(frame);
 
         auto panel = CCLayerColor::create(
-            ccc4(30, 48, 96, 250),
+            ccc4(27, 43, 91, 252),
             panelWidth,
             panelHeight
         );
@@ -459,7 +788,7 @@ class $modify(ModGDPauseLayer, PauseLayer) {
         overlay->addChild(panel);
 
         auto topBar = CCLayerColor::create(
-            ccc4(255, 207, 77, 255),
+            ccc4(255, 210, 80, 255),
             panelWidth - 8.f,
             5.f
         );
@@ -468,91 +797,97 @@ class $modify(ModGDPauseLayer, PauseLayer) {
 
         auto title = CCLabelBMFont::create("MOD-GD AUTOPILOT", "goldFont.fnt");
         title->setScale(0.78f);
-        title->setPosition(CCPoint(panelWidth / 2.f, 340.f));
+        title->setPosition(CCPoint(panelWidth / 2.f, 402.f));
         panel->addChild(title);
 
         auto subtitle = CCLabelBMFont::create(
-            "PREVIEW  /  LEARN  /  REPLAY", "bigFont.fnt"
+            "SCAN LEVEL  /  AI PLAY  /  SAVE", "bigFont.fnt"
         );
-        subtitle->setScale(0.43f);
+        subtitle->setScale(0.42f);
         subtitle->setColor(ccc3(170, 230, 255));
-        subtitle->setPosition(CCPoint(panelWidth / 2.f, 309.f));
+        subtitle->setPosition(CCPoint(panelWidth / 2.f, 374.f));
         panel->addChild(subtitle);
 
-        auto info = CCLabelBMFont::create(
-            "Routes use Geometry Dash's native press and release input.", "bigFont.fnt"
+        auto analysisStatus = CCLabelBMFont::create(
+            "LEVEL NOT SCANNED", "bigFont.fnt"
         );
-        info->setScale(0.34f);
-        info->setColor(ccc3(218, 229, 250));
-        info->setPosition(CCPoint(panelWidth / 2.f, 280.f));
-        panel->addChild(info);
+        analysisStatus->setScale(0.34f);
+        analysisStatus->setColor(ccc3(210, 235, 255));
+        analysisStatus->setPosition(CCPoint(panelWidth / 2.f, 338.f));
+        panel->addChild(analysisStatus);
+        m_fields->analysisStatus = analysisStatus;
 
         auto menu = CCMenu::create();
         menu->setPosition(CCPointZero);
         panel->addChild(menu);
 
-        auto previewSprite = ButtonSprite::create(
-            "PREVIEW NO-DEATH", 220, true, "bigFont.fnt",
-            "GJ_button_01.png", 40.f, 0.68f
-        );
-        auto previewButton = CCMenuItemSpriteExtra::create(
-            previewSprite, this, menu_selector(ModGDPauseLayer::onTogglePreview)
-        );
-        previewButton->setPosition(CCPoint(148.f, 230.f));
-        menu->addChild(previewButton);
+        auto makeButton = [&](const char* text, const char* frameName,
+                              float x, float y, cocos2d::SEL_MenuHandler selector) {
+            auto sprite = ButtonSprite::create(
+                text, 220, true, "goldFont.fnt", frameName, 38.f, 0.72f
+            );
+            auto button = CCMenuItemSpriteExtra::create(sprite, this, selector);
+            button->setPosition(CCPoint(x, y));
+            menu->addChild(button);
+        };
 
-        auto previewStatus = CCLabelBMFont::create("OFF", "bigFont.fnt");
-        previewStatus->setScale(0.48f);
+        makeButton(
+            "ANALYZE LEVEL", "GJ_button_01.png",
+            145.f, 265.f, menu_selector(ModGDPauseLayer::onAnalyzeLevel)
+        );
+        makeButton(
+            "AI AUTO-PLAY", "GJ_button_02.png",
+            415.f, 265.f, menu_selector(ModGDPauseLayer::onAIPlay)
+        );
+        makeButton(
+            "LEARN ROUTE", "GJ_button_03.png",
+            145.f, 195.f, menu_selector(ModGDPauseLayer::onLearnRoute)
+        );
+        makeButton(
+            "PLAY SAVED", "GJ_button_04.png",
+            415.f, 195.f, menu_selector(ModGDPauseLayer::onPlaySavedRoute)
+        );
+        makeButton(
+            "SAVE LEVEL", "GJ_button_05.png",
+            145.f, 125.f, menu_selector(ModGDPauseLayer::onSaveLevel)
+        );
+        makeButton(
+            "EXIT LEVEL", "GJ_button_06.png",
+            415.f, 125.f, menu_selector(ModGDPauseLayer::onExitLevel)
+        );
+
+        auto previewStatus = CCLabelBMFont::create("PREVIEW: OFF", "bigFont.fnt");
+        previewStatus->setScale(0.32f);
         previewStatus->setColor(ccc3(255, 222, 125));
-        previewStatus->setPosition(CCPoint(390.f, 230.f));
+        previewStatus->setPosition(CCPoint(panelWidth / 2.f, 80.f));
         panel->addChild(previewStatus);
         m_fields->previewStatus = previewStatus;
 
-        auto learnSprite = ButtonSprite::create(
-            "LEARN ROUTE", 220, true, "goldFont.fnt",
-            "GJ_button_02.png", 40.f, 0.72f
-        );
-        auto learnButton = CCMenuItemSpriteExtra::create(
-            learnSprite, this, menu_selector(ModGDPauseLayer::onLearnRoute)
-        );
-        learnButton->setPosition(CCPoint(148.f, 162.f));
-        menu->addChild(learnButton);
-
-        auto routeStatus = CCLabelBMFont::create("RECORD", "bigFont.fnt");
-        routeStatus->setScale(0.43f);
-        routeStatus->setColor(ccc3(153, 255, 177));
-        routeStatus->setPosition(CCPoint(390.f, 162.f));
+        auto routeStatus = CCLabelBMFont::create("ROUTE: NOT SAVED", "bigFont.fnt");
+        routeStatus->setScale(0.32f);
+        routeStatus->setColor(ccc3(255, 185, 150));
+        routeStatus->setPosition(CCPoint(panelWidth / 2.f, 58.f));
         panel->addChild(routeStatus);
         m_fields->routeStatus = routeStatus;
 
-        auto playSprite = ButtonSprite::create(
-            "PLAY SAVED ROUTE", 220, true, "goldFont.fnt",
-            "GJ_button_03.png", 40.f, 0.67f
-        );
-        auto playButton = CCMenuItemSpriteExtra::create(
-            playSprite, this, menu_selector(ModGDPauseLayer::onPlaySavedRoute)
-        );
-        playButton->setPosition(CCPoint(148.f, 94.f));
-        menu->addChild(playButton);
-
-        auto practiceStatus = CCLabelBMFont::create("NO PRACTICE MARK", "bigFont.fnt");
-        practiceStatus->setScale(0.34f);
+        auto practiceStatus = CCLabelBMFont::create("PRACTICE MARK: NONE", "bigFont.fnt");
+        practiceStatus->setScale(0.30f);
         practiceStatus->setColor(ccc3(255, 215, 120));
-        practiceStatus->setPosition(CCPoint(panelWidth / 2.f, 55.f));
+        practiceStatus->setPosition(CCPoint(panelWidth / 2.f, 38.f));
         panel->addChild(practiceStatus);
         m_fields->practiceStatus = practiceStatus;
 
         auto closeSprite = ButtonSprite::create(
-            "CLOSE", 120, true, "goldFont.fnt",
-            "GJ_button_04.png", 34.f, 0.75f
+            "CLOSE", 100, true, "goldFont.fnt",
+            "GJ_button_04.png", 30.f, 0.72f
         );
         auto closeButton = CCMenuItemSpriteExtra::create(
             closeSprite, this, menu_selector(ModGDPauseLayer::onCloseModMenu)
         );
-        closeButton->setPosition(CCPoint(panelWidth / 2.f, 22.f));
+        closeButton->setPosition(CCPoint(panelWidth / 2.f, 14.f));
         menu->addChild(closeButton);
 
-        log::info("[Mod-GD] In-game styled launcher and route menu added");
+        log::info("[Mod-GD] MGD launcher and AI analysis menu created");
     }
 
     void onOpenModMenu(CCObject*) {
@@ -568,25 +903,110 @@ class $modify(ModGDPauseLayer, PauseLayer) {
         }
     }
 
+    void onAnalyzeLevel(CCObject*) {
+        auto* layer = PlayLayer::get();
+        if (!layer || !layer->m_level) {
+            showNotice("Open a level first, then scan it.");
+            return;
+        }
+
+        const auto result = analyzeLevelObjects(layer);
+        g_aiAnalysisReady = true;
+        g_aiAnalysisSupported = result.cubePilotSupported;
+        g_aiAnalysisKey = analysisKey(layer->m_level);
+        g_aiAnalysisSummary = makeAnalysisSummary(result);
+        if (!g_aiAnalysisKey.empty()) {
+            Mod::get()->setSavedValue<std::string>(
+                g_aiAnalysisKey,
+                g_aiAnalysisSummary
+            );
+        }
+
+        this->refreshLabels();
+
+        if (result.cubePilotSupported) {
+            showNotice(
+                "Level scan complete. The current AI prototype can attempt "
+                "static cube-only sections. Triggers and moving objects may still "
+                "need more advanced prediction."
+            );
+        } else {
+            showNotice(
+                "Level scan complete. This level contains portals, orbs, pads, "
+                "dual mode or platformer gameplay. The cube-only AI will not start "
+                "because it cannot steer those sections yet."
+            );
+        }
+    }
+
+    void dismissPauseAndRestart(PlayLayer* layer, CCObject* sender) {
+        if (!layer) {
+            return;
+        }
+
+        if (m_fields->overlay) {
+            m_fields->overlay->setVisible(false);
+        }
+
+        // Use the vanilla pause handler first so the pause menu is removed.
+        // Then restart from the beginning after it has been dismissed.
+        this->onResume(sender);
+        layer->resumeAndRestart(true);
+    }
+
+    void onAIPlay(CCObject* sender) {
+        auto* layer = PlayLayer::get();
+        if (!layer || !layer->m_level) {
+            showNotice("Open a level first.");
+            return;
+        }
+
+        const auto currentKey = analysisKey(layer->m_level);
+        if (!g_aiAnalysisReady || g_aiAnalysisKey != currentKey) {
+            showNotice("Press ANALYZE LEVEL first so the AI can inspect this level.");
+            return;
+        }
+        if (!g_aiAnalysisSupported) {
+            showNotice(
+                "AI cannot start on this level yet. This first prototype supports "
+                "only static cube-only gameplay without portals, orbs, pads, dual "
+                "mode or platformer sections."
+            );
+            return;
+        }
+        if (layer->m_isPracticeMode) {
+            showNotice("Turn Practice Mode off before starting AI Auto-Play.");
+            return;
+        }
+
+        g_previewNoDeath = false;
+        g_aiRequested = true;
+        g_aiRunning = false;
+        g_aiFailed = false;
+        g_aiButtonDown = false;
+        g_aiRetries = 0;
+        g_aiLeadDistance = 132.f;
+        g_routeMode = RouteMode::Idle;
+        g_routeEvents.clear();
+
+        this->dismissPauseAndRestart(layer, sender);
+    }
+
     void onTogglePreview(CCObject*) {
         g_previewNoDeath = !g_previewNoDeath;
 
         if (g_previewNoDeath) {
+            g_aiRequested = false;
+            g_aiRunning = false;
+            g_aiButtonDown = false;
             g_routeMode = RouteMode::Idle;
             g_routeEvents.clear();
         }
 
         this->refreshLabels();
-
-        if (!g_previewNoDeath) {
-            showNotice(
-                "Preview is off. Press LEARN ROUTE to restart from the beginning "
-                "and record a clean normal-mode run."
-            );
-        }
     }
 
-    void onLearnRoute(CCObject*) {
+    void onLearnRoute(CCObject* sender) {
         auto* layer = PlayLayer::get();
         if (!layer || !layer->m_level) {
             showNotice("Open a level first.");
@@ -594,13 +1014,16 @@ class $modify(ModGDPauseLayer, PauseLayer) {
         }
         if (layer->m_isPracticeMode) {
             showNotice(
-                "Route learning is for a normal-mode clear. Practice deaths are "
-                "saved as markers, but practice attempts are not stored as a clean route."
+                "Learn Route records a clean normal-mode run. Practice deaths "
+                "are still saved as percentage markers."
             );
             return;
         }
 
         g_previewNoDeath = false;
+        g_aiRequested = false;
+        g_aiRunning = false;
+        g_aiButtonDown = false;
         g_routeEvents.clear();
         g_routeMode = RouteMode::Recording;
         g_playIndex = 0;
@@ -608,23 +1031,17 @@ class $modify(ModGDPauseLayer, PauseLayer) {
         g_replayRetries = 0;
         g_replayFailed = false;
 
-        if (m_fields->overlay) {
-            m_fields->overlay->setVisible(false);
-        }
-
-        layer->resumeAndRestart(true);
+        this->dismissPauseAndRestart(layer, sender);
     }
 
-    void onPlaySavedRoute(CCObject*) {
+    void onPlaySavedRoute(CCObject* sender) {
         auto* layer = PlayLayer::get();
         if (!layer || !layer->m_level) {
             showNotice("Open a level first.");
             return;
         }
         if (layer->m_isPracticeMode) {
-            showNotice(
-                "Saved clean routes run in normal mode. Turn Practice Mode off first."
-            );
+            showNotice("Saved clean routes run in normal mode. Turn Practice Mode off first.");
             return;
         }
 
@@ -632,12 +1049,15 @@ class $modify(ModGDPauseLayer, PauseLayer) {
         const auto data = loadSavedRoute(layer->m_level);
         if (!parseRoute(data, parsed)) {
             showNotice(
-                "No clean route is saved for this level yet. Finish one normal-mode "
-                "run, or press LEARN ROUTE and complete the level."
+                "No route is saved for this level yet. Complete Learn Route once, "
+                "or let AI finish a supported level."
             );
             return;
         }
 
+        g_aiRequested = false;
+        g_aiRunning = false;
+        g_aiButtonDown = false;
         g_routeEvents = std::move(parsed);
         g_routeMode = RouteMode::Playing;
         g_playIndex = 0;
@@ -646,33 +1066,80 @@ class $modify(ModGDPauseLayer, PauseLayer) {
         g_replayFailed = false;
         g_previewNoDeath = false;
 
+        this->dismissPauseAndRestart(layer, sender);
+    }
+
+    void onSaveLevel(CCObject*) {
+        auto* layer = PlayLayer::get();
+        if (!layer || !layer->m_level) {
+            showNotice("Open a level first.");
+            return;
+        }
+
+        bool savedRoute = saveCurrentRoute(layer);
+        const auto key = analysisKey(layer->m_level);
+        if (!key.empty() && g_aiAnalysisReady &&
+            g_aiAnalysisKey == key && !g_aiAnalysisSummary.empty()) {
+            Mod::get()->setSavedValue<std::string>(key, g_aiAnalysisSummary);
+        }
+
+        if (savedRoute || g_aiAnalysisReady) {
+            showNotice(
+                "Mod-GD saved this level's analysis and any recorded route locally. "
+                "This does not edit or upload the original Geometry Dash level."
+            );
+        } else {
+            showNotice(
+                "Nothing to save yet. Analyze the level or record a route first."
+            );
+        }
+
+        this->refreshLabels();
+    }
+
+    void onExitLevel(CCObject* sender) {
         if (m_fields->overlay) {
             m_fields->overlay->setVisible(false);
         }
-
-        layer->resumeAndRestart(true);
+        this->onQuit(sender);
     }
 
     void refreshLabels() {
+        auto* layer = PlayLayer::get();
+
+        if (m_fields->analysisStatus) {
+            if (g_aiAnalysisReady && layer && layer->m_level &&
+                g_aiAnalysisKey == analysisKey(layer->m_level)) {
+                m_fields->analysisStatus->setString(g_aiAnalysisSummary.c_str());
+                m_fields->analysisStatus->setColor(
+                    g_aiAnalysisSupported
+                        ? ccc3(150, 255, 185)
+                        : ccc3(255, 190, 145)
+                );
+            } else {
+                m_fields->analysisStatus->setString("LEVEL NOT SCANNED");
+                m_fields->analysisStatus->setColor(ccc3(210, 235, 255));
+            }
+        }
+
         if (m_fields->previewStatus) {
             m_fields->previewStatus->setString(
-                g_previewNoDeath ? "ON" : "OFF"
+                g_previewNoDeath ? "PREVIEW: ON" : "PREVIEW: OFF"
             );
             m_fields->previewStatus->setColor(
                 g_previewNoDeath ? ccc3(110, 255, 145) : ccc3(255, 222, 125)
             );
         }
 
-        auto* layer = PlayLayer::get();
         if (m_fields->routeStatus) {
             const auto route = layer && layer->m_level
                 ? loadSavedRoute(layer->m_level)
                 : std::string{};
             m_fields->routeStatus->setString(
-                route.empty() ? "NOT SAVED" : "READY"
+                route.empty() ? "ROUTE: NOT SAVED" : "ROUTE: READY"
             );
             m_fields->routeStatus->setColor(
-                route.empty() ? ccc3(255, 157, 130) : ccc3(153, 255, 177)
+                route.empty() ? ccc3(255, 185, 150) : ccc3(153, 255, 177)
             );
         }
 
@@ -681,8 +1148,8 @@ class $modify(ModGDPauseLayer, PauseLayer) {
                 ? lastPracticeMark(layer->m_level)
                 : -1;
             const auto text = mark >= 0
-                ? "LAST PRACTICE DEATH: " + std::to_string(mark) + "%"
-                : "NO PRACTICE MARK";
+                ? "PRACTICE MARK: " + std::to_string(mark) + "%"
+                : "PRACTICE MARK: NONE";
             m_fields->practiceStatus->setString(text.c_str());
         }
     }
