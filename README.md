@@ -18,7 +18,7 @@ A Windows Geode mod for Geometry Dash **2.2081** / Geode **5.11.2**.
 4. On a supported simple cube-only level, press **AI Auto-Play**. The pause menu is dismissed and the level restarts from the beginning.
 5. **Learn Route** remains a manual recorder: it records your own press/release input while you complete a normal-mode run.
 6. **Play Saved** replays a successfully saved route.
-7. **Save Level** stores Mod-GD's analysis and route data locally. It does not edit or upload the original Geometry Dash level.
+7. **Save Level** adds the currently opened level to Geometry Dash's own **Saved Levels** list and stores available Mod-GD analysis/route data locally.
 8. **Exit Level** uses the game's normal quit action.
 
 ## AI status and limitations
