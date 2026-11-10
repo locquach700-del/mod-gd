@@ -1,0 +1,12 @@
+diff --git a/src/renderer/ObjectBatchNode.cpp b/src/renderer/ObjectBatchNode.cpp
+--- a/src/renderer/ObjectBatchNode.cpp
++++ b/src/renderer/ObjectBatchNode.cpp
+@@ -7,3 +7,7 @@
+ void ObjectBatchNode::draw() {
+-    Renderer::get()->getObjectBatch().draw(layerId);
++    auto renderer = Renderer::get();
++    if (!renderer)
++        return;
++
++    renderer->getObjectBatch().draw(layerId);
+ }
